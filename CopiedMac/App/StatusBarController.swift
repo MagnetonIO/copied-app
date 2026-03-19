@@ -178,13 +178,16 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     // MARK: - Settings
 
     @objc func openSettings() {
-        // Fire the SwiftUI action FIRST while the popover is still shown
-        // and the app is still active — this ensures the scene graph is engaged.
-        settingsAction?()
-
-        // Then close the popover and make the app a regular Dock citizen
         popover.performClose(nil)
-        NSApp.setActivationPolicy(.regular)
+
+        // Try the stored SwiftUI action first, fall back to NSApp selector
+        if let action = settingsAction {
+            action()
+        } else {
+            // Works even before the popover has been opened
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
         }

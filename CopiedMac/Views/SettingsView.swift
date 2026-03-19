@@ -59,7 +59,7 @@ struct SettingsView: View {
     private var generalTab: some View {
         Form {
             Toggle("Launch at login", isOn: $launchAtLogin)
-                .tint(.blue)
+                .tint(.accentColor)
                 .onChange(of: launchAtLogin) { _, newValue in
                     setLaunchAtLogin(newValue)
                 }
@@ -71,17 +71,24 @@ struct SettingsView: View {
             }
 
             Toggle("Show main window on launch", isOn: $showWindowOnLaunch)
-                .tint(.blue)
+                .tint(.accentColor)
             Toggle("Show in Dock", isOn: $showInDock)
-                .tint(.blue)
+                .tint(.accentColor)
                 .onChange(of: showInDock) { _, newValue in
-                    NSApp.setActivationPolicy(newValue ? .regular : .accessory)
+                    // Delay policy change so Settings window isn't killed mid-interaction
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NSApp.setActivationPolicy(newValue ? .regular : .accessory)
+                        // Re-activate app so Settings window stays visible
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                    }
                 }
 
             Toggle("Play sounds", isOn: $playSounds)
-                .tint(.blue)
+                .tint(.accentColor)
             Toggle("Copy and close popover", isOn: $pasteAndClose)
-                .tint(.blue)
+                .tint(.accentColor)
 
             Section("History") {
                 Picker("Max history size", selection: $maxHistorySize) {
@@ -118,13 +125,13 @@ struct SettingsView: View {
     private var clipboardTab: some View {
         Form {
             Toggle("Allow duplicate clippings", isOn: $allowDuplicates)
-                .tint(.blue)
+                .tint(.accentColor)
                 .onChange(of: allowDuplicates) { _, val in clipboardService.allowDuplicates = val }
             Toggle("Capture images", isOn: $captureImages)
-                .tint(.blue)
+                .tint(.accentColor)
                 .onChange(of: captureImages) { _, val in clipboardService.captureImages = val }
             Toggle("Capture rich text (RTF)", isOn: $captureRichText)
-                .tint(.blue)
+                .tint(.accentColor)
                 .onChange(of: captureRichText) { _, val in clipboardService.captureRichText = val }
 
             Section("Excluded Apps") {
@@ -212,7 +219,7 @@ struct SettingsView: View {
         Form {
             Section {
                 Toggle("iCloud Sync", isOn: $cloudSyncEnabled)
-                    .tint(.blue)
+                    .tint(.accentColor)
                     .onChange(of: cloudSyncEnabled) { _, val in syncMonitor.isEnabled = val }
 
                 if cloudSyncEnabled {
