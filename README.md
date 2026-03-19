@@ -4,38 +4,20 @@ A modern clipboard manager for macOS built with SwiftUI and SwiftData.
 
 ## Features
 
-- **Clipboard Monitoring** — Automatically captures text, URLs, images, rich text, and HTML from the system clipboard
-- **Code Snippet Detection** — Auto-detects code in clipboard with language identification (Swift, Python, JS, Go, Rust, and 20+ languages)
+- **Clipboard Monitoring** — Automatically captures text, URLs, images, rich text, and HTML
+- **Code Snippet Detection** — Auto-detects code with language identification (25+ languages)
 - **Fuzzy Search** — Sublime Text-style fuzzy matching with highlighted results
-- **Smart Paste / Transformations** — "Copy As…" menu with UPPERCASE, lowercase, JSON format/minify, URL encode/decode, strip markdown, and more
+- **Smart Paste / Transformations** — "Copy As…" menu with case transforms, JSON format/minify, URL encode/decode, strip markdown, and more
 - **Content Type Filtering** — Filter by Text, Rich Text, Image, Link, or Code
 - **Global Hotkey** — ⌃⇧C to toggle the popover from anywhere
 - **Keyboard Navigation** — Arrow keys to navigate, Enter to copy, ⌘1–⌘9 for quick paste
 - **Favorites & Pinning** — Star important clippings, pin items to the top
-- **iCloud Sync** — Sync clipboard history across Macs via CloudKit
-- **Sync Status** — Real-time sync indicator showing Importing/Exporting/Synced status
-- **Image Thumbnails** — Efficient thumbnail cache using `CGImageSourceCreateThumbnailAtIndex`
+- **iCloud Sync** — Sync clipboard history across your Macs automatically
+- **Sync Status** — Real-time indicator showing sync activity
 - **Trash & Restore** — Soft-delete with restore capability
 - **Lists** — Organize clippings into collections
 - **Menu Bar App** — Lives in the menu bar, no Dock icon by default
 - **Settings** — Configurable history size, capture preferences, excluded apps, appearance
-
-## Architecture
-
-```
-CopiedKit/          — Shared framework (models, services, views)
-  Models/           — SwiftData models (Clipping, ClipList, Asset)
-  Services/         — ClipboardService, CodeDetector, FuzzyMatcher, TextTransform, SyncMonitor, ThumbnailCache
-  Views/            — ClippingDetail, ClippingRow
-
-CopiedMac/          — macOS app target
-  App/              — AppDelegate, GlobalHotkeyManager, StatusBarController, PermissionManager
-  MenuBar/          — PopoverView, PopoverClippingCard
-  Windows/          — MainWindowView (three-column layout)
-  Views/            — SettingsView, ClippingEditSheet
-
-CopiedIOS/          — iOS app target (placeholder)
-```
 
 ## Requirements
 
@@ -46,16 +28,8 @@ CopiedIOS/          — iOS app target (placeholder)
 ## Building
 
 ```bash
-# Debug build (unsigned)
+# Debug build
 xcodebuild -project Copied.xcodeproj -scheme CopiedMac build CODE_SIGNING_ALLOWED=NO
-
-# Release build (signed, for testing)
-xcodebuild -project Copied.xcodeproj -scheme CopiedMac \
-  -configuration Release \
-  DEVELOPMENT_TEAM=7727LYTG96 \
-  CODE_SIGN_STYLE=Automatic \
-  CODE_SIGN_IDENTITY="Apple Development" \
-  -allowProvisioningUpdates build
 
 # Create DMG
 hdiutil create -volname "Copied" \
@@ -63,9 +37,26 @@ hdiutil create -volname "Copied" \
   -ov -format UDZO build/Copied.dmg
 ```
 
+## Architecture
+
+```
+CopiedKit/          — Shared framework (models, services, views)
+  Models/           — SwiftData models (Clipping, ClipList, Asset)
+  Services/         — ClipboardService, CodeDetector, FuzzyMatcher, TextTransform, SyncMonitor
+  Views/            — ClippingDetail, ClippingRow
+
+CopiedMac/          — macOS app target
+  App/              — AppDelegate, GlobalHotkeyManager, StatusBarController
+  MenuBar/          — PopoverView, PopoverClippingCard
+  Windows/          — MainWindowView (three-column layout)
+  Views/            — SettingsView
+
+CopiedIOS/          — iOS app target (planned)
+```
+
 ## iCloud Sync
 
-Uses CloudKit container `iCloud.com.mlong.copied` with SwiftData's automatic sync. Both devices must be signed into the same iCloud account.
+Clipboard history syncs automatically across all your Macs via iCloud. Both devices must be signed into the same iCloud account. Each user's data is private — stored in their own iCloud account.
 
 ## License
 
