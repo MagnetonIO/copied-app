@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+*.dmg
+DerivedData/
+*.xcarchive
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Profile data
+*.profraw
+*.profdata
+
+# Dependencies
+Pods/
+.build/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Secrets
+*.p12
+*.mobileprovision
+*.provisionprofile

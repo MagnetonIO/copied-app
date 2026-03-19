@@ -1,0 +1,106 @@
+name: Copied
+options:
+  bundleIdPrefix: com.mlong
+  deploymentTarget:
+    macOS: "15.0"
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+packages:
+  CopiedKit:
+    path: CopiedKit
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: false
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+
+  # ──────────────────────────────────────────
+  # macOS App
+  # ──────────────────────────────────────────
+  CopiedMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - CopiedMac
+    dependencies:
+      - package: CopiedKit
+    info:
+      path: CopiedMac/Info.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        LSUIElement: false
+        LSApplicationCategoryType: public.app-category.utilities
+        NSAppleScriptEnabled: true
+        CFBundleDisplayName: Copied
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.mac
+        PRODUCT_NAME: Copied
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
+        SWIFT_EMIT_LOC_STRINGS: true
+    entitlements:
+      path: CopiedMac/CopiedMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.mlong.copied
+        com.apple.developer.icloud-services:
+          - CloudKit
+
+  # ──────────────────────────────────────────
+  # iOS App
+  # ──────────────────────────────────────────
+  CopiedIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - CopiedIOS
+    dependencies:
+      - package: CopiedKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied
+        PRODUCT_NAME: Copied
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Copied
+        CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
+        SWIFT_EMIT_LOC_STRINGS: true
+    entitlements:
+      path: CopiedIOS/CopiedIOS.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.mlong.copied
+        com.apple.developer.icloud-services:
+          - CloudKit
+
+  # ──────────────────────────────────────────
+  # Tests
+  # ──────────────────────────────────────────
+  CopiedKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - Tests/CopiedKitTests
+    dependencies:
+      - package: CopiedKit
+      - target: CopiedMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.tests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Copied.app/Contents/MacOS/Copied"
+        BUNDLE_LOADER: "$(TEST_HOST)"

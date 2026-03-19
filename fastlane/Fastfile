@@ -1,0 +1,44 @@
+default_platform(:mac)
+
+platform :mac do
+  desc "Build Release .app with proper signing"
+  lane :build_release do
+    build_mac_app(
+      project: "Copied.xcodeproj",
+      scheme: "CopiedMac",
+      configuration: "Release",
+      output_directory: "build/export",
+      output_name: "Copied.app",
+      export_method: "development",
+      export_team_id: "7727LYTG96",
+      skip_package_pkg: true,
+      clean: true,
+      destination: "generic/platform=macOS"
+    )
+  end
+
+  desc "Build Release .app and create DMG"
+  lane :build_dmg do
+    build_release
+
+    app_path = "build/export/Copied.app"
+    dmg_name = "Copied-#{Time.now.strftime('%Y%m%d')}.dmg"
+    dmg_path = "build/#{dmg_name}"
+
+    sh("hdiutil create -volname 'Copied' -srcfolder '../#{app_path}' -ov -format UDZO '../#{dmg_path}'")
+
+    UI.success("DMG created: #{dmg_path}")
+    dmg_path
+  end
+
+  desc "Build unsigned Release for CI (no signing required)"
+  lane :build_unsigned do
+    xcodebuild(
+      project: "Copied.xcodeproj",
+      scheme: "CopiedMac",
+      configuration: "Release",
+      build: true,
+      xcargs: "CODE_SIGNING_ALLOWED=NO"
+    )
+  end
+end

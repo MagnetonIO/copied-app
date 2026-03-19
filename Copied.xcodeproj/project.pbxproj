@@ -28,7 +28,6 @@
 		DD265A8A1086BACBC893AAF5 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81E8FF99A9750B5718F93BF /* StatusBarController.swift */; };
 		E0D9256012865D83AE6F87BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2977CA0AC8339871C8329B52 /* Assets.xcassets */; };
 		E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */; };
-		E54EC1E8C41B8FC00C46EF9D /* ExpandedClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C34AAC26E0FE0FFEE8BBF1 /* ExpandedClippingCard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,7 +54,6 @@
 		46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedIOSApp.swift; sourceTree = "<group>"; };
 		5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
 		6B039D4406990AB5444E169A /* PopoverClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverClippingCard.swift; sourceTree = "<group>"; };
-		79C34AAC26E0FE0FFEE8BBF1 /* ExpandedClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpandedClippingCard.swift; sourceTree = "<group>"; };
 		8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingEditSheet.swift; sourceTree = "<group>"; };
 		96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedMacApp.swift; sourceTree = "<group>"; };
 		B81E8FF99A9750B5718F93BF /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
@@ -67,7 +65,7 @@
 		DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingModelTests.swift; sourceTree = "<group>"; };
 		E1E7F9BDEBDC0D938D2DA15B /* IOSContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSContentView.swift; sourceTree = "<group>"; };
 		F0A0703C9592958941B00289 /* CopiedMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CopiedMac.entitlements; sourceTree = "<group>"; };
-		FCA7831A76D46DF3744FCD06 /* CopiedMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = CopiedMac.app; path = Copied.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCA7831A76D46DF3744FCD06 /* Copied.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Copied.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,7 +119,6 @@
 		5631CB527AD0A3489E471AE7 /* MenuBar */ = {
 			isa = PBXGroup;
 			children = (
-				79C34AAC26E0FE0FFEE8BBF1 /* ExpandedClippingCard.swift */,
 				6B039D4406990AB5444E169A /* PopoverClippingCard.swift */,
 				D4A621629EB1423A7F5305E1 /* PopoverView.swift */,
 			);
@@ -175,7 +172,7 @@
 			children = (
 				294BCC0938D4BD6227DD3159 /* Copied.app */,
 				BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */,
-				FCA7831A76D46DF3744FCD06 /* CopiedMac.app */,
+				FCA7831A76D46DF3744FCD06 /* Copied.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -239,7 +236,7 @@
 				C8685AAFE499AE75FFFF857C /* CopiedKit */,
 			);
 			productName = CopiedMac;
-			productReference = FCA7831A76D46DF3744FCD06 /* CopiedMac.app */;
+			productReference = FCA7831A76D46DF3744FCD06 /* Copied.app */;
 			productType = "com.apple.product-type.application";
 		};
 		BCFE06295783F2744BA56339 /* CopiedKitTests */ = {
@@ -344,7 +341,6 @@
 			files = (
 				8E571072F83C8735F75B5479 /* ClippingEditSheet.swift in Sources */,
 				8A8AC5000C43193E11BE3585 /* CopiedMacApp.swift in Sources */,
-				E54EC1E8C41B8FC00C46EF9D /* ExpandedClippingCard.swift in Sources */,
 				8D03DD120B7D7E5D83463DD3 /* GlobalHotkeyManager.swift in Sources */,
 				979E1F22BA6D8BF0A429A471 /* MainWindowView.swift in Sources */,
 				724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */,
@@ -600,6 +596,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 7727LYTG96;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -619,6 +616,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 7727LYTG96;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

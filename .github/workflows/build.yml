@@ -1,0 +1,111 @@
+name: Build Copied
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project Copied.xcodeproj -scheme CopiedMac
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project Copied.xcodeproj \
+            -scheme CopiedMac \
+            -configuration Release \
+            -destination "platform=macOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+  build-signed:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Install signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          echo -n "$CERTIFICATE_P12" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+        run: |
+          PROFILE_PATH="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$PROFILE_PATH"
+          echo -n "$PROVISIONING_PROFILE" | base64 --decode \
+            -o "$PROFILE_PATH/copied-mac.provisionprofile"
+
+      - name: Build signed Release
+        run: |
+          xcodebuild -project Copied.xcodeproj \
+            -scheme CopiedMac \
+            -configuration Release \
+            -destination "platform=macOS" \
+            -archivePath build/Copied.xcarchive \
+            DEVELOPMENT_TEAM=7727LYTG96 \
+            CODE_SIGN_STYLE=Manual \
+            archive
+
+          xcodebuild -exportArchive \
+            -archivePath build/Copied.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Create DMG
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          DMG_NAME="Copied-${REF_NAME}.dmg"
+          hdiutil create -volname "Copied" \
+            -srcfolder build/export/Copied.app \
+            -ov -format UDZO \
+            "build/$DMG_NAME"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: copied-dmg
+          path: build/${{ env.DMG_NAME }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/${{ env.DMG_NAME }}
+          generate_release_notes: true
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
