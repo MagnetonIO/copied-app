@@ -31,7 +31,7 @@ struct PopoverClippingCard: View {
 
             // Timestamp / quick actions
             ZStack(alignment: .trailing) {
-                Text(clipping.addDate, style: .relative)
+                Text(clipping.addDate.relativeLabel)
                     .font(.caption)
                     .foregroundStyle(.quaternary)
                     .lineLimit(1)

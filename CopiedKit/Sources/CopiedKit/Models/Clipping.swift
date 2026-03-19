@@ -127,6 +127,26 @@ extension Clipping {
     }
 }
 
+// MARK: - Static Relative Date (avoids SwiftUI's Text(date, style: .relative) constant re-render)
+
+extension Date {
+    /// Returns a human-readable relative time string. Computed once per call,
+    /// does NOT trigger continuous SwiftUI layout cycles like `Text(date, style: .relative)`.
+    public var relativeLabel: String {
+        let seconds = -self.timeIntervalSinceNow
+        if seconds < 5 { return "just now" }
+        if seconds < 60 { return "\(Int(seconds)) sec" }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = Int(seconds / 3600)
+        if hours < 24 { return "\(hours) hr" }
+        let days = Int(seconds / 86400)
+        if days < 30 { return "\(days) day\(days == 1 ? "" : "s")" }
+        let months = Int(seconds / 2_592_000)
+        return "\(months) mo"
+    }
+}
+
 public enum ContentKind: String, Codable, Sendable {
     case text
     case richText

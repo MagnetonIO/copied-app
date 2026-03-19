@@ -24,7 +24,7 @@ public struct ClippingRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Text(clipping.addDate, style: .relative)
+                    Text(clipping.addDate.relativeLabel)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
