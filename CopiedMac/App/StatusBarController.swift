@@ -16,9 +16,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     /// way to open Settings on macOS 14+. Captured by PopoverView on appear.
     var settingsAction: OpenSettingsAction?
 
+    /// Factory to create the popover content on demand (avoids idle CPU from always-live SwiftUI views)
+    private var contentFactory: (() -> AnyView)?
+
     private override init() { super.init() }
 
-    func setup<Content: View>(@ViewBuilder content: () -> Content) {
+    func setup<Content: View>(@ViewBuilder content: @escaping () -> Content) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = item.button {
@@ -42,11 +45,11 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         pop.behavior = .applicationDefined
         pop.animates = true
         pop.delegate = self
-        pop.contentViewController = NSHostingController(rootView: content())
 
         self.statusItem = item
         self.popover = pop
         self.contextMenu = menu
+        self.contentFactory = { AnyView(content()) }
     }
 
     // MARK: - Status bar click
@@ -87,9 +90,17 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         }
     }
 
+    /// Attaches a fresh SwiftUI view to the popover (created on demand to avoid idle CPU).
+    private func attachContentIfNeeded() {
+        if popover.contentViewController == nil, let factory = contentFactory {
+            popover.contentViewController = NSHostingController(rootView: factory())
+        }
+    }
+
     /// Called by click — button is already positioned, show immediately.
     private func showPopoverImmediate() {
         guard let button = statusItem.button else { return }
+        attachContentIfNeeded()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         configurePopoverWindowForFullScreen()
         installCloseMonitors()
@@ -101,6 +112,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
             guard !popover.isShown else { return }
+            attachContentIfNeeded()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             configurePopoverWindowForFullScreen()
             installCloseMonitors()
@@ -173,6 +185,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     func popoverDidClose(_ notification: Notification) {
         removeCloseMonitors()
         appState?.popoverIsVisible = false
+        // Detach SwiftUI view to stop @Query / .relative date layout cycles when hidden
+        popover.contentViewController = nil
     }
 
     // MARK: - Settings
