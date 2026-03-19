@@ -153,7 +153,9 @@ struct PopoverView: View {
             selectedIndex = min(selectedIndex + 1, filtered.count - 1)
             if filtered.indices.contains(selectedIndex) {
                 hoveredID = nil
-                withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
+                }
             }
             return .handled
         }
@@ -163,7 +165,9 @@ struct PopoverView: View {
             selectedIndex = max(selectedIndex - 1, 0)
             if filtered.indices.contains(selectedIndex) {
                 hoveredID = nil
-                withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .top) }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
+                }
             }
             return .handled
         }
@@ -218,7 +222,9 @@ struct PopoverView: View {
                     selectedIndex = min(selectedIndex + 1, filtered.count - 1)
                     if filtered.indices.contains(selectedIndex) {
                         hoveredID = nil
-                        withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .bottom) }
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
+                        }
                     }
                     return .handled
                 }
@@ -228,7 +234,9 @@ struct PopoverView: View {
                     selectedIndex = max(selectedIndex - 1, 0)
                     if filtered.indices.contains(selectedIndex) {
                         hoveredID = nil
-                        withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .top) }
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
+                        }
                     }
                     return .handled
                 }
