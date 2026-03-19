@@ -1,8 +1,30 @@
 default_platform(:mac)
 
 platform :mac do
-  desc "Build Release .app with proper signing"
-  lane :build_release do
+  # ── CI ──────────────────────────────────────────────
+
+  desc "Build unsigned for CI verification"
+  lane :ci_build do
+    xcodebuild(
+      project: "Copied.xcodeproj",
+      scheme: "CopiedMac",
+      configuration: "Release",
+      build: true,
+      destination: "platform=macOS",
+      xcargs: "CODE_SIGNING_ALLOWED=NO"
+    )
+    UI.success("CI build passed")
+  end
+
+  # ── Signed Build ────────────────────────────────────
+
+  desc "Build signed Release .app via xcodebuild archive"
+  lane :build_signed do |options|
+    # Install certificate + profile from environment (CI) or local keychain
+    if ENV["CERTIFICATE_P12"]
+      setup_ci_signing
+    end
+
     build_mac_app(
       project: "Copied.xcodeproj",
       scheme: "CopiedMac",
@@ -13,32 +35,101 @@ platform :mac do
       export_team_id: "7727LYTG96",
       skip_package_pkg: true,
       clean: true,
-      destination: "generic/platform=macOS"
+      destination: "generic/platform=macOS",
+      export_options: {
+        signingStyle: "automatic",
+        teamID: "7727LYTG96"
+      }
     )
   end
 
-  desc "Build Release .app and create DMG"
+  # ── DMG ─────────────────────────────────────────────
+
+  desc "Build signed .app and package into DMG"
   lane :build_dmg do
-    build_release
+    build_signed
 
     app_path = "build/export/Copied.app"
-    dmg_name = "Copied-#{Time.now.strftime('%Y%m%d')}.dmg"
+    version = Time.now.strftime('%Y%m%d')
+    dmg_name = "Copied-#{version}.dmg"
     dmg_path = "build/#{dmg_name}"
 
     sh("hdiutil create -volname 'Copied' -srcfolder '../#{app_path}' -ov -format UDZO '../#{dmg_path}'")
 
     UI.success("DMG created: #{dmg_path}")
+    lane_context[:DMG_PATH] = dmg_path
     dmg_path
   end
 
-  desc "Build unsigned Release for CI (no signing required)"
-  lane :build_unsigned do
-    xcodebuild(
+  # ── Developer ID + Notarization ─────────────────────
+
+  desc "Build with Developer ID signing and notarize for public distribution"
+  lane :release do
+    build_mac_app(
       project: "Copied.xcodeproj",
       scheme: "CopiedMac",
       configuration: "Release",
-      build: true,
-      xcargs: "CODE_SIGNING_ALLOWED=NO"
+      output_directory: "build/release",
+      output_name: "Copied.app",
+      export_method: "developer-id",
+      export_team_id: "7727LYTG96",
+      skip_package_pkg: true,
+      clean: true,
+      destination: "generic/platform=macOS"
     )
+
+    app_path = "build/release/Copied.app"
+
+    # Notarize
+    if ENV["APP_STORE_CONNECT_API_KEY_KEY_ID"]
+      notarize(
+        package: app_path,
+        api_key_path: ENV["API_KEY_JSON_PATH"],
+        print_log: true
+      )
+    end
+
+    # Create DMG
+    version = last_git_tag || Time.now.strftime('%Y%m%d')
+    dmg_name = "Copied-#{version}.dmg"
+    dmg_path = "build/#{dmg_name}"
+
+    sh("hdiutil create -volname 'Copied' -srcfolder '../#{app_path}' -ov -format UDZO '../#{dmg_path}'")
+
+    # Notarize DMG too
+    if ENV["APP_STORE_CONNECT_API_KEY_KEY_ID"]
+      notarize(
+        package: "../#{dmg_path}",
+        api_key_path: ENV["API_KEY_JSON_PATH"],
+        print_log: true
+      )
+    end
+
+    UI.success("Release DMG: #{dmg_path}")
+    dmg_path
+  end
+
+  # ── Helpers ─────────────────────────────────────────
+
+  private_lane :setup_ci_signing do
+    keychain_name = "ci-signing"
+    keychain_password = ""
+
+    create_keychain(
+      name: keychain_name,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600
+    )
+
+    import_certificate(
+      certificate_path: "ci_certificate.p12",
+      certificate_password: ENV["CERTIFICATE_PASSWORD"],
+      keychain_name: keychain_name,
+      keychain_password: keychain_password
+    )
+
+    install_provisioning_profile(path: "ci_profile.provisionprofile")
   end
 end

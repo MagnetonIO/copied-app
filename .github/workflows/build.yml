@@ -8,6 +8,7 @@ on:
     branches: [main]
 
 jobs:
+  # ── CI Build (every push/PR) ──────────────────────
   build:
     runs-on: macos-15
     steps:
@@ -16,27 +17,29 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app
 
-      - name: Resolve packages
-        run: xcodebuild -resolvePackageDependencies -project Copied.xcodeproj -scheme CopiedMac
+      - name: Install fastlane
+        run: brew install fastlane
 
       - name: Build (unsigned)
-        run: |
-          xcodebuild -project Copied.xcodeproj \
-            -scheme CopiedMac \
-            -configuration Release \
-            -destination "platform=macOS" \
-            CODE_SIGNING_ALLOWED=NO \
-            build
+        run: fastlane ci_build
 
-  build-signed:
+  # ── Signed Release (on version tags) ──────────────
+  release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-15
     needs: build
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Install fastlane
+        run: brew install fastlane
 
       - name: Install signing certificate
         env:
@@ -75,7 +78,9 @@ jobs:
             -destination "platform=macOS" \
             -archivePath build/Copied.xcarchive \
             DEVELOPMENT_TEAM=7727LYTG96 \
-            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            -allowProvisioningUpdates \
             archive
 
           xcodebuild -exportArchive \
@@ -94,7 +99,7 @@ jobs:
             "build/$DMG_NAME"
           echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
 
-      - name: Upload DMG
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: copied-dmg
