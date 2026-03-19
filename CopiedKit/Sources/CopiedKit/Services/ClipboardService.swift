@@ -33,8 +33,8 @@ public final class ClipboardService {
         self.maxHistory = maxHistory
         // Read settings from UserDefaults
         self.allowDuplicates = UserDefaults.standard.bool(forKey: "allowDuplicates")
-        self.captureImages = !UserDefaults.standard.bool(forKey: "captureImages") ? false : true
-        self.captureRichText = !UserDefaults.standard.bool(forKey: "captureRichText") ? false : true
+        self.captureImages = UserDefaults.standard.object(forKey: "captureImages") as? Bool ?? true
+        self.captureRichText = UserDefaults.standard.object(forKey: "captureRichText") as? Bool ?? true
     }
 
     public func configure(modelContext: ModelContext) {
@@ -155,6 +155,17 @@ public final class ClipboardService {
                 clipping.imageHeight = Double(image.size.height)
             }
             didCapture = true
+        } else if let imageData = imageDataFromFileURL(pasteboard) {
+            // File URL pointing to an image (e.g. copying a screenshot file from Finder)
+            clipping.imageData = imageData.data
+            clipping.hasImage = true
+            clipping.imageByteCount = imageData.data.count
+            clipping.imageFormat = imageData.format
+            if let image = NSImage(data: imageData.data) {
+                clipping.imageWidth = Double(image.size.width)
+                clipping.imageHeight = Double(image.size.height)
+            }
+            didCapture = true
         }
 
         // Rich text (RTF/RTFD)
@@ -201,6 +212,79 @@ public final class ClipboardService {
         }
 
         enforceHistoryLimit()
+    }
+
+    private struct FileImageData {
+        let data: Data
+        let format: String
+    }
+
+    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
+
+    /// Reads image data from a file URL on the pasteboard (e.g. copying a screenshot file from Finder).
+    /// Checks multiple pasteboard types: public.file-url, NSFilenamesPboardType, readObjects(NSURL).
+    private func imageDataFromFileURL(_ pasteboard: NSPasteboard) -> FileImageData? {
+        // Strategy 1: Read file URL string from pasteboard
+        if let url = fileURLFromPasteboard(pasteboard) {
+            if let result = readImageFile(at: url) { return result }
+        }
+
+        // Strategy 2: NSFilenamesPboardType (legacy, still used by Finder)
+        let filenameType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+        if let data = pasteboard.data(forType: filenameType),
+           let paths = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
+            for path in paths {
+                let url = URL(fileURLWithPath: path)
+                if let result = readImageFile(at: url) { return result }
+            }
+        }
+
+        // Strategy 3: readObjects (modern NSPasteboardReading API)
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] {
+            for url in urls {
+                if let result = readImageFile(at: url) { return result }
+            }
+        }
+
+        return nil
+    }
+
+    /// Extracts a file URL from the pasteboard's string types, handling percent-encoding edge cases.
+    private func fileURLFromPasteboard(_ pasteboard: NSPasteboard) -> URL? {
+        guard let urlStr = pasteboard.string(forType: .fileURL) ?? pasteboard.string(forType: .URL),
+              urlStr.hasPrefix("file://") else { return nil }
+
+        // Try direct parsing first
+        if let url = URL(string: urlStr) { return url }
+
+        // Fallback: percent-encode the path portion for URLs with spaces/special chars
+        let pathPortion = String(urlStr.dropFirst("file://".count))
+        if let encoded = pathPortion.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let url = URL(string: "file://" + encoded) {
+            return url
+        }
+
+        return nil
+    }
+
+    /// Reads image data from a file URL if it points to a supported image format.
+    private func readImageFile(at url: URL) -> FileImageData? {
+        let ext = url.pathExtension.lowercased()
+        guard Self.imageExtensions.contains(ext) else { return nil }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+
+        let format: String
+        switch ext {
+        case "png": format = "png"
+        case "jpg", "jpeg": format = "jpeg"
+        case "gif": format = "gif"
+        case "webp": format = "webp"
+        case "heic": format = "heic"
+        default: format = "tiff"
+        }
+        return FileImageData(data: data, format: format)
     }
     #endif
 

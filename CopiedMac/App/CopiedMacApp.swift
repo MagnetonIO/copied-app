@@ -49,16 +49,8 @@ struct CopiedMacApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let clipboardService: ClipboardService = {
-        let maxHistory = UserDefaults.standard.integer(forKey: "maxHistorySize")
-        return ClipboardService(maxHistory: maxHistory > 0 ? maxHistory : 5000)
-    }()
-    let pasteQueue = PasteQueueService()
-    let appState = AppState()
-    let syncMonitor = SyncMonitor()
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Register defaults so UserDefaults.bool returns correct values before Settings opens
+    // Register defaults early so they're available when stored properties initialize
+    private static let _registerDefaults: Void = {
         UserDefaults.standard.register(defaults: [
             "captureImages": true,
             "captureRichText": true,
@@ -69,6 +61,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "popoverItemCount": 50,
             "maxHistorySize": 5000
         ])
+    }()
+
+    let clipboardService: ClipboardService = {
+        _ = AppDelegate._registerDefaults
+        let maxHistory = UserDefaults.standard.integer(forKey: "maxHistorySize")
+        return ClipboardService(maxHistory: maxHistory > 0 ? maxHistory : 5000)
+    }()
+    let pasteQueue = PasteQueueService()
+    let appState = AppState()
+    let syncMonitor = SyncMonitor()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // One-time fix: the old init code had a bug that set captureImages=false
+        // in UserDefaults even though the user never toggled it. Reset to true
+        // for users affected by this bug (key "didFixCaptureImagesDefault").
+        if !UserDefaults.standard.bool(forKey: "didFixCaptureImagesDefault") {
+            UserDefaults.standard.set(true, forKey: "captureImages")
+            UserDefaults.standard.set(true, forKey: "captureRichText")
+            UserDefaults.standard.set(true, forKey: "didFixCaptureImagesDefault")
+            clipboardService.captureImages = true
+            clipboardService.captureRichText = true
+        }
 
         // Hide from Dock by default (menu bar only)
         let showInDock = UserDefaults.standard.bool(forKey: "showInDock")
