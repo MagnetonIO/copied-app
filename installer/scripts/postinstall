@@ -1,0 +1,4 @@
+#!/bin/bash
+# Launch Copied after installation
+open -a /Applications/Copied.app &
+exit 0

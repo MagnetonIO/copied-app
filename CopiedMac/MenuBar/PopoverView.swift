@@ -22,6 +22,8 @@ struct PopoverView: View {
     @State private var searchText = ""
     @State private var hoveredID: String?
     @State private var selectedIndex: Int = 0
+    @State private var isKeyboardNavigating: Bool = false
+    @State private var lastMouseLocation: CGPoint = .zero
     @State private var editingClipID: String?
     @State private var editText: String = ""
     @State private var previewClipID: String?
@@ -147,18 +149,20 @@ struct PopoverView: View {
         }
         .onKeyPress(.downArrow) {
             guard editingClipID == nil else { return .ignored }
+            isKeyboardNavigating = true
             selectedIndex = min(selectedIndex + 1, filtered.count - 1)
             if filtered.indices.contains(selectedIndex) {
-                hoveredID = filtered[selectedIndex].clippingID
+                hoveredID = nil
                 withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .bottom) }
             }
             return .handled
         }
         .onKeyPress(.upArrow) {
             guard editingClipID == nil else { return .ignored }
+            isKeyboardNavigating = true
             selectedIndex = max(selectedIndex - 1, 0)
             if filtered.indices.contains(selectedIndex) {
-                hoveredID = filtered[selectedIndex].clippingID
+                hoveredID = nil
                 withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .top) }
             }
             return .handled
@@ -210,18 +214,20 @@ struct PopoverView: View {
                 .focused($searchFocused)
                 .onKeyPress(.downArrow) {
                     guard editingClipID == nil else { return .ignored }
+                    isKeyboardNavigating = true
                     selectedIndex = min(selectedIndex + 1, filtered.count - 1)
                     if filtered.indices.contains(selectedIndex) {
-                        hoveredID = filtered[selectedIndex].clippingID
+                        hoveredID = nil
                         withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .bottom) }
                     }
                     return .handled
                 }
                 .onKeyPress(.upArrow) {
                     guard editingClipID == nil else { return .ignored }
+                    isKeyboardNavigating = true
                     selectedIndex = max(selectedIndex - 1, 0)
                     if filtered.indices.contains(selectedIndex) {
-                        hoveredID = filtered[selectedIndex].clippingID
+                        hoveredID = nil
                         withAnimation { scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: .top) }
                     }
                     return .handled
@@ -320,8 +326,22 @@ struct PopoverView: View {
                             )
                             .id(clipping.clippingID)
                             .onHover { isHovered in
-                                hoveredID = isHovered ? clipping.clippingID : nil
-                                if isHovered { selectedIndex = index }
+                                if isHovered {
+                                    let currentMouse = NSEvent.mouseLocation
+                                    // Only switch to mouse mode if the mouse actually moved
+                                    // (scrolling causes hover events without mouse movement)
+                                    let mouseMoved = abs(currentMouse.x - lastMouseLocation.x) > 2 ||
+                                                     abs(currentMouse.y - lastMouseLocation.y) > 2
+                                    lastMouseLocation = currentMouse
+
+                                    if mouseMoved || !isKeyboardNavigating {
+                                        isKeyboardNavigating = false
+                                        hoveredID = clipping.clippingID
+                                        selectedIndex = index
+                                    }
+                                } else if hoveredID == clipping.clippingID {
+                                    hoveredID = nil
+                                }
                             }
                             .onTapGesture(count: 2) {
                                 handleDoubleClick(clipping)
