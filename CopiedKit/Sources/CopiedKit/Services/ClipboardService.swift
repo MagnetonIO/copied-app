@@ -28,14 +28,27 @@ public final class ClipboardService {
     /// Set to true before writing to pasteboard, cleared after poll skips the self-write
     public var skipNextCapture: Bool = false
     private var modelContext: ModelContext?
-    private var maxHistory: Int
+    private var maxHistoryOverride: Int?
 
-    public init(maxHistory: Int = 5000) {
-        self.maxHistory = maxHistory
-        // Read settings from UserDefaults
+    /// Max non-favorite/non-pinned clippings before trimming. Reads live from
+    /// UserDefaults("maxHistorySize") unless a constructor override is set (tests).
+    public var maxHistory: Int {
+        if let maxHistoryOverride { return maxHistoryOverride }
+        let stored = UserDefaults.standard.integer(forKey: "maxHistorySize")
+        return stored > 0 ? stored : 5000
+    }
+
+    public init(maxHistory: Int? = nil) {
+        self.maxHistoryOverride = maxHistory
         self.allowDuplicates = UserDefaults.standard.bool(forKey: "allowDuplicates")
         self.captureImages = UserDefaults.standard.object(forKey: "captureImages") as? Bool ?? true
         self.captureRichText = UserDefaults.standard.object(forKey: "captureRichText") as? Bool ?? true
+    }
+
+    /// Trim history to `maxHistory` immediately. Call this from Settings when
+    /// the user lowers the limit so trimming doesn't wait for the next capture.
+    public func trimHistoryNow() {
+        enforceHistoryLimit()
     }
 
     public func configure(modelContext: ModelContext) {

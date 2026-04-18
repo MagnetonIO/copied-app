@@ -99,6 +99,9 @@ struct SettingsView: View {
                     Text("10,000").tag(10000)
                     Text("Unlimited").tag(Int.max)
                 }
+                .onChange(of: maxHistorySize) { _, _ in
+                    clipboardService.trimHistoryNow()
+                }
 
                 LabeledContent("Trash") {
                     Button("Empty Trash", role: .destructive) {

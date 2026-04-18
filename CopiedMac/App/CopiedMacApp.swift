@@ -66,8 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let clipboardService: ClipboardService = {
         _ = AppDelegate._registerDefaults
-        let maxHistory = UserDefaults.standard.integer(forKey: "maxHistorySize")
-        return ClipboardService(maxHistory: maxHistory > 0 ? maxHistory : 5000)
+        return ClipboardService()
     }()
     let pasteQueue = PasteQueueService()
     let appState = AppState()
