@@ -7,6 +7,10 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" CopiedM
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" CopiedMac/Info.plist 2>/dev/null || echo "1")
 TEAM_ID="7727LYTG96"
 IDENTIFIER="com.mlong.copied.mac"
+# Developer ID profile that actually matches com.mlong.copied.mac + iCloud
+# container. Required because CloudKit entitlements force a provisioning
+# profile even for Developer ID signing.
+PROVISIONING_PROFILE_SPECIFIER="Copied Mac DevID"
 
 echo "========================================"
 echo "  Building Copied v${VERSION} (${BUILD})"
@@ -18,6 +22,7 @@ mkdir -p build
 
 # ── 1. Archive ────────────────────────────────
 echo "[1/6] Archiving..."
+set -o pipefail
 xcodebuild -project Copied.xcodeproj \
   -scheme CopiedMac \
   -configuration Release \
@@ -26,14 +31,16 @@ xcodebuild -project Copied.xcodeproj \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="Developer ID Application" \
+  PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+  ENABLE_HARDENED_RUNTIME=YES \
   -allowProvisioningUpdates \
-  archive 2>&1 | tail -3
+  archive 2>&1 | tail -5
 
 # ── 2. Export ─────────────────────────────────
 echo "[2/6] Exporting signed app..."
 
 # Create export options for Developer ID
-cat > build/ExportOptions-Release.plist << 'PLIST'
+cat > build/ExportOptions-Release.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,9 +49,16 @@ cat > build/ExportOptions-Release.plist << 'PLIST'
     <key>method</key>
     <string>developer-id</string>
     <key>signingStyle</key>
-    <string>automatic</string>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>$IDENTIFIER</key>
+        <string>$PROVISIONING_PROFILE_SPECIFIER</string>
+    </dict>
     <key>teamID</key>
-    <string>7727LYTG96</string>
+    <string>$TEAM_ID</string>
 </dict>
 </plist>
 PLIST
