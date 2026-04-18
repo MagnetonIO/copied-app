@@ -375,8 +375,8 @@ struct PopoverView: View {
                             }
                             .contextMenu {
                                 Button("Copy") { copyToClipboard(clipping) }
-                                Button("Copy as Plain Text") {
-                                    if let text = clipping.text {
+                                if let text = clipping.text, !text.isEmpty {
+                                    Button("Copy as Plain Text") {
                                         clipboardService.skipNextCapture = true
                                         NSPasteboard.general.clearContents()
                                         NSPasteboard.general.setString(text, forType: .string)
@@ -403,6 +403,12 @@ struct PopoverView: View {
                                 if clipping.contentKind == .code, let text = clipping.text {
                                     Button("Open in Editor") {
                                         openInEditor(text: text, language: clipping.detectedLanguage)
+                                        StatusBarController.shared.closePopover()
+                                    }
+                                }
+                                if clipping.contentKind == .image, clipping.hasImage {
+                                    Button("Open in Default Viewer") {
+                                        openImageInDefaultViewer(clipping)
                                         StatusBarController.shared.closePopover()
                                     }
                                 }
@@ -623,6 +629,28 @@ struct PopoverView: View {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("copied-snippet.\(ext)")
         try? text.write(to: tempURL, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(tempURL)
+    }
+
+    private func openImageInDefaultViewer(_ clipping: Clipping) {
+        guard let data = clipping.imageData else { return }
+        let ext: String
+        switch clipping.imageFormat.lowercased() {
+        case "png": ext = "png"
+        case "jpeg", "jpg": ext = "jpg"
+        case "gif": ext = "gif"
+        case "webp": ext = "webp"
+        case "heic": ext = "heic"
+        default: ext = "tiff"
+        }
+        let slug = String(clipping.clippingID.prefix(8))
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("copied-\(slug).\(ext)")
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            NSWorkspace.shared.open(tempURL)
+        } catch {
+            NSLog("Failed to write temp image for viewer: \(error)")
+        }
     }
 
     // MARK: - Status Bar
