@@ -104,6 +104,7 @@ extension Clipping {
         if hasHTML { return .html }
         if hasRichText { return .richText }
         if text != nil { return .text }
+        if sourceURL != nil { return .file }
         return .unknown
     }
 

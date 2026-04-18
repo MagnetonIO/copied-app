@@ -412,6 +412,12 @@ struct PopoverView: View {
                                         StatusBarController.shared.closePopover()
                                     }
                                 }
+                                if let videoURL = videoFileURL(for: clipping) {
+                                    Button("Open Video") {
+                                        NSWorkspace.shared.open(videoURL)
+                                        StatusBarController.shared.closePopover()
+                                    }
+                                }
                                 Divider()
                                 Button(clipping.contentKind == .image ? "Rename…" : "Edit…") {
                                     if clipping.contentKind == .image {
@@ -765,6 +771,13 @@ struct PopoverView: View {
     }
 
     private func handleDoubleClick(_ clipping: Clipping) {
+        // If the clipping references a video file on disk, open it in the
+        // user's default video app instead of copying a thumbnail.
+        if let videoURL = videoFileURL(for: clipping) {
+            NSWorkspace.shared.open(videoURL)
+            StatusBarController.shared.closePopover()
+            return
+        }
         switch clipping.contentKind {
         case .link:
             if let urlStr = clipping.url, let url = URL(string: urlStr) {
@@ -778,6 +791,16 @@ struct PopoverView: View {
         default:
             copyAndPaste(clipping)
         }
+    }
+
+    private func videoFileURL(for clipping: Clipping) -> URL? {
+        guard let src = clipping.sourceURL,
+              let url = URL(string: src),
+              url.isFileURL else { return nil }
+        let ext = url.pathExtension.lowercased()
+        guard ClipboardService.videoExtensions.contains(ext) else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
     private func copyTransformed(_ clipping: Clipping, transform: TextTransform) {

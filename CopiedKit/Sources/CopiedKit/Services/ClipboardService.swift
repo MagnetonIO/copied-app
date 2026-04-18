@@ -195,6 +195,18 @@ public final class ClipboardService {
             clipping.hasHTML = true
         }
 
+        // Video file URL — capture so double-click can open the original in
+        // its default app (Finder-copy of a .mov produces a placeholder image
+        // thumbnail on the pasteboard; we augment it with the file path).
+        if let fileURL = fileURLFromPasteboard(pasteboard),
+           Self.videoExtensions.contains(fileURL.pathExtension.lowercased()) {
+            clipping.sourceURL = fileURL.absoluteString
+            if clipping.title == nil {
+                clipping.title = fileURL.lastPathComponent
+            }
+            didCapture = true
+        }
+
         guard didCapture else { return }
 
         // Code detection
@@ -234,6 +246,7 @@ public final class ClipboardService {
     }
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
+    public static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "mkv", "webm", "mpg", "mpeg"]
 
     private func imageDimensions(from data: Data) -> (width: Double, height: Double)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
