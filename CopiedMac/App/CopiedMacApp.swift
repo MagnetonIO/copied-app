@@ -24,6 +24,7 @@ enum SharedData {
 @main
 struct CopiedMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         Window("Copied", id: "main") {
@@ -32,16 +33,36 @@ struct CopiedMacApp: App {
                 .environment(appDelegate.pasteQueue)
                 .environment(appDelegate.appState)
                 .environment(appDelegate.syncMonitor)
+                .onOpenURL { url in
+                    handleIncomingURL(url)
+                }
         }
         .modelContainer(SharedData.container)
         .defaultSize(width: 900, height: 600)
         .defaultPosition(.center)
+        .handlesExternalEvents(matching: ["copied"])
 
         Settings {
             SettingsView()
                 .environment(appDelegate.clipboardService)
                 .environment(appDelegate.syncMonitor)
                 .modelContainer(SharedData.container)
+        }
+    }
+
+    /// Routes `copied://` URLs into app state. Currently supports:
+    /// - `copied://search?q=<text>` — open main window, seed the search query.
+    @MainActor
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme == "copied" else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "main")
+
+        if url.host(percentEncoded: false) == "search" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let query = components?.queryItems?.first(where: { $0.name == "q" })?.value ?? ""
+            appDelegate.appState.searchText = query
+            appDelegate.appState.sidebarSelection = .all
         }
     }
 }
@@ -56,11 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "captureImages": true,
             "captureRichText": true,
             "allowDuplicates": false,
-            "playSounds": true,
             "pasteAndClose": true,
             "cloudSyncEnabled": true,
-            "popoverItemCount": 50,
-            "maxHistorySize": 5000
+            "popoverItemCount": 100,
+            "maxHistorySize": 5000,
+            "stripURLTrackingParams": true,
+            "retentionDays": -1
         ])
     }()
 
@@ -93,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ctx = ModelContext(SharedData.container)
         clipboardService.configure(modelContext: ctx)
         clipboardService.start()
+        clipboardService.trimByAge()
         syncMonitor.start()
 
         // Set up status bar popover

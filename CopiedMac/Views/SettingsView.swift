@@ -17,11 +17,12 @@ struct SettingsView: View {
     @AppStorage("maxHistorySize") private var maxHistorySize = 5000
     @AppStorage("showWindowOnLaunch") private var showWindowOnLaunch = false
     @AppStorage("showInDock") private var showInDock = false
-    @AppStorage("playSounds") private var playSounds = true
     @AppStorage("allowDuplicates") private var allowDuplicates = false
     @AppStorage("captureImages") private var captureImages = true
     @AppStorage("captureRichText") private var captureRichText = true
     @AppStorage("pasteAndClose") private var pasteAndClose = true
+    @AppStorage("stripURLTrackingParams") private var stripURLTrackingParams = true
+    @AppStorage("retentionDays") private var retentionDays = -1
 
     @State private var launchAtLogin = false
     @State private var loginItemError: String?
@@ -85,8 +86,6 @@ struct SettingsView: View {
                     }
                 }
 
-            Toggle("Play sounds", isOn: $playSounds)
-                .tint(.accentColor)
             Toggle("Copy and close popover", isOn: $pasteAndClose)
                 .tint(.accentColor)
 
@@ -101,6 +100,17 @@ struct SettingsView: View {
                 }
                 .onChange(of: maxHistorySize) { _, _ in
                     clipboardService.trimHistoryNow()
+                }
+
+                Picker("Auto-delete after", selection: $retentionDays) {
+                    Text("Never").tag(-1)
+                    Text("30 days").tag(30)
+                    Text("6 months").tag(180)
+                    Text("1 year").tag(365)
+                    Text("2 years").tag(730)
+                }
+                .onChange(of: retentionDays) { _, _ in
+                    clipboardService.trimByAge()
                 }
 
                 LabeledContent("Trash") {
@@ -136,6 +146,8 @@ struct SettingsView: View {
             Toggle("Capture rich text (RTF)", isOn: $captureRichText)
                 .tint(.accentColor)
                 .onChange(of: captureRichText) { _, val in clipboardService.captureRichText = val }
+            Toggle("Strip URL tracking parameters (utm_*, fbclid, gclid…)", isOn: $stripURLTrackingParams)
+                .tint(.accentColor)
 
             Section("Excluded Apps") {
                 if excludedApps.isEmpty {

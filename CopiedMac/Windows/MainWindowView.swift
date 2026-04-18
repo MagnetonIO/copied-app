@@ -37,6 +37,17 @@ struct MainWindowView: View {
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search all clippings…")
         .toolbar { toolbar }
+        .onAppear {
+            // Pick up a pre-seeded query from the URL scheme (copied://search?q=…).
+            if !appState.searchText.isEmpty && searchText.isEmpty {
+                searchText = appState.searchText
+            }
+        }
+        .onChange(of: appState.searchText) { _, newValue in
+            if newValue != searchText {
+                searchText = newValue
+            }
+        }
     }
 
     // MARK: - Sidebar

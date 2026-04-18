@@ -17,7 +17,13 @@ struct PopoverView: View {
     private var allClippings: [Clipping]
 
     @AppStorage("pasteAndClose") private var pasteAndClose = true
-    @AppStorage("popoverItemCount") private var popoverItemCount = 50
+
+    /// How many of the most recent clippings are currently materialized in the
+    /// popover. Starts at 100 and grows by 100 as the user scrolls near the
+    /// bottom, capped at `maxVisibleCount` so memory stays bounded.
+    @State private var visibleCount: Int = 100
+    private let pageSize: Int = 100
+    private let maxVisibleCount: Int = 2000
 
     @State private var searchText = ""
     @State private var hoveredID: String?
@@ -30,7 +36,15 @@ struct PopoverView: View {
     @FocusState private var searchFocused: Bool
 
     private var clippings: ArraySlice<Clipping> {
-        allClippings.prefix(popoverItemCount)
+        allClippings.prefix(min(visibleCount, maxVisibleCount))
+    }
+
+    /// Whether more recent-list rows can be loaded without hitting the cap.
+    private var canLoadMore: Bool {
+        searchText.isEmpty &&
+        appState.filterKind == nil &&
+        visibleCount < maxVisibleCount &&
+        visibleCount < allClippings.count
     }
 
     /// Cached search results — only recomputed when searchText or filterKind changes, NOT on hover
@@ -75,7 +89,8 @@ struct PopoverView: View {
                         clip.text.map { String($0.prefix(500)) },
                         clip.title,
                         clip.url,
-                        clip.appName
+                        clip.appName,
+                        clip.extractedText.map { String($0.prefix(500)) }
                     ]
 
                     let minimumFuzzyScore = max(8, searchText.count * 2)
@@ -116,7 +131,8 @@ struct PopoverView: View {
                     clip.text?.localizedCaseInsensitiveContains(searchText) == true ||
                     clip.title?.localizedCaseInsensitiveContains(searchText) == true ||
                     clip.url?.localizedCaseInsensitiveContains(searchText) == true ||
-                    clip.appName?.localizedCaseInsensitiveContains(searchText) == true
+                    clip.appName?.localizedCaseInsensitiveContains(searchText) == true ||
+                    clip.extractedText?.localizedCaseInsensitiveContains(searchText) == true
                 }
                 Task { @MainActor in matchRanges = [:] }
             }
@@ -349,6 +365,13 @@ struct PopoverView: View {
                                 searchMatchRanges: matchRanges[clipping.clippingID]
                             )
                             .id(clipping.clippingID)
+                            .onAppear {
+                                // Grow the recent-list window as the user approaches the end.
+                                // Guarded so search/filter views don't trigger paging.
+                                if canLoadMore, index >= filtered.count - 10 {
+                                    visibleCount = min(visibleCount + pageSize, maxVisibleCount)
+                                }
+                            }
                             .onHover { isHovered in
                                 if isHovered {
                                     let currentMouse = NSEvent.mouseLocation
@@ -384,6 +407,12 @@ struct PopoverView: View {
                                         try? modelContext.save()
                                         searchResults = nil
                                     }
+                                }
+                                if clipping.hasRichText {
+                                    Button("Copy as Rich Text") { copyAsRichText(clipping) }
+                                }
+                                if clipping.hasHTML {
+                                    Button("Copy as HTML") { copyAsHTML(clipping) }
                                 }
                                 if clipping.text != nil {
                                     Menu("Copy As…") {
@@ -807,6 +836,34 @@ struct PopoverView: View {
         clipboardService.skipNextCapture = true
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transform.apply(text), forType: .string)
+        clipping.markUsed()
+        try? modelContext.save()
+        searchResults = nil
+    }
+
+    private func copyAsRichText(_ clipping: Clipping) {
+        guard let rtfData = clipping.richTextData else { return }
+        clipboardService.skipNextCapture = true
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(rtfData, forType: clipping.richTextPasteboardType)
+        if let text = clipping.text {
+            pb.setString(text, forType: .string)
+        }
+        clipping.markUsed()
+        try? modelContext.save()
+        searchResults = nil
+    }
+
+    private func copyAsHTML(_ clipping: Clipping) {
+        guard let htmlData = clipping.htmlData else { return }
+        clipboardService.skipNextCapture = true
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(htmlData, forType: .html)
+        if let text = clipping.text {
+            pb.setString(text, forType: .string)
+        }
         clipping.markUsed()
         try? modelContext.save()
         searchResults = nil

@@ -33,6 +33,10 @@ public final class Clipping {
     public var isCode: Bool = false
     public var detectedLanguage: String?
 
+    // Plain-text extract of richTextData / htmlData bodies, populated at
+    // capture time so popover search can reach inside formatted content.
+    public var extractedText: String?
+
     // HTML content
     @Attribute(.externalStorage) public var htmlData: Data?
     public var hasHTML: Bool = false

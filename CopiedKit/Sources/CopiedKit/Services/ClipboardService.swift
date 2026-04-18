@@ -50,6 +50,33 @@ public final class ClipboardService {
     /// the user lowers the limit so trimming doesn't wait for the next capture.
     public func trimHistoryNow() {
         enforceHistoryLimit()
+        trimByAge()
+    }
+
+    /// Retention (days) read live from UserDefaults. -1 or 0 disables it.
+    public var retentionDays: Int {
+        let stored = UserDefaults.standard.integer(forKey: "retentionDays")
+        return stored == 0 ? -1 : stored
+    }
+
+    /// Deletes non-favorite, non-pinned clippings older than `retentionDays`.
+    /// No-op when retention is -1 ("Never").
+    public func trimByAge() {
+        guard let modelContext, retentionDays > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86_400)
+        let descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate { clipping in
+                clipping.isFavorite == false &&
+                clipping.isPinned == false &&
+                clipping.deleteDate == nil &&
+                clipping.addDate < cutoff
+            }
+        )
+        guard let expired = try? modelContext.fetch(descriptor), !expired.isEmpty else { return }
+        for clipping in expired {
+            modelContext.delete(clipping)
+        }
+        try? modelContext.save()
     }
 
     public func configure(modelContext: ModelContext) {
@@ -132,7 +159,14 @@ public final class ClipboardService {
         // URL — check .URL type first, then detect URLs in text
         if let urlStr = pasteboard.string(forType: .URL), !urlStr.isEmpty,
            !urlStr.hasPrefix("file://") {
-            clipping.url = urlStr
+            let cleaned = Self.sanitizeURL(urlStr)
+            clipping.url = cleaned
+            // Keep text in sync when it was just the same URL, so paste-as-text
+            // doesn't revive the tracking params.
+            if let text = clipping.text,
+               text.trimmingCharacters(in: .whitespacesAndNewlines) == urlStr {
+                clipping.text = cleaned
+            }
             didCapture = true
         } else if clipping.url == nil, let text = clipping.text {
             // Detect if the entire text is a URL (common when copying from address bar)
@@ -143,7 +177,12 @@ public final class ClipboardService {
                let scheme = url.scheme,
                ["http", "https", "ftp", "ssh"].contains(scheme),
                url.host != nil {
-                clipping.url = trimmed
+                let cleaned = Self.sanitizeURL(trimmed)
+                clipping.url = cleaned
+                // Text was purely the URL (surrounding whitespace only), so
+                // update it to the cleaned value so paste-as-text doesn't
+                // revive the tracking params.
+                clipping.text = cleaned
             }
         }
 
@@ -196,6 +235,20 @@ public final class ClipboardService {
             clipping.hasHTML = true
         }
 
+        // Extract plain text from rich formats for searchability. Prefer HTML
+        // (usually higher fidelity) over RTF. If we already captured .string
+        // we still run this — the extracted version often contains parts the
+        // plain .string type omitted (e.g. alt text, table cell content).
+        if clipping.extractedText == nil {
+            if clipping.hasHTML, let html = clipping.htmlData,
+               let extracted = plainTextFromHTML(html) {
+                clipping.extractedText = extracted
+            } else if clipping.hasRichText, let rtf = clipping.richTextData,
+                      let extracted = plainTextFromRTF(rtf) {
+                clipping.extractedText = extracted
+            }
+        }
+
         // Video file URL — capture so double-click can open the original in
         // its default app (Finder-copy of a .mov produces a placeholder image
         // thumbnail on the pasteboard; we augment it with the file path).
@@ -244,12 +297,8 @@ public final class ClipboardService {
         lastCapturedDate = Date()
         captureCount += 1
 
-        // Play capture sound if enabled
-        if UserDefaults.standard.bool(forKey: "playSounds") {
-            NSSound(named: .init("Morse"))?.play()
-        }
-
         enforceHistoryLimit()
+        trimByAge()
     }
 
     private struct FileImageData {
@@ -258,6 +307,35 @@ public final class ClipboardService {
     }
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
+
+    /// Query parameters the standard marketing / analytics ecosystem appends to
+    /// shared links. Stripped from captured URLs when `stripURLTrackingParams`
+    /// is enabled (default on). Matched case-insensitively. `utm_*` matched by
+    /// prefix — any `utm_anything` is stripped.
+    private static let trackingParamNames: Set<String> = [
+        "fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "ref", "_hsenc", "_hsmi",
+        "mkt_tok", "yclid", "wickedid", "oly_anon_id", "oly_enc_id", "__s", "vero_id"
+    ]
+
+    /// Strips tracking params (utm_*, fbclid, gclid, etc.) from a URL string
+    /// when the `stripURLTrackingParams` setting is on. Returns the original
+    /// string if the URL can't be parsed or the setting is off.
+    static func sanitizeURL(_ urlString: String) -> String {
+        guard UserDefaults.standard.object(forKey: "stripURLTrackingParams") as? Bool ?? true else {
+            return urlString
+        }
+        guard var components = URLComponents(string: urlString),
+              let items = components.queryItems else {
+            return urlString
+        }
+        let filtered = items.filter { item in
+            let name = item.name.lowercased()
+            if name.hasPrefix("utm_") { return false }
+            return !trackingParamNames.contains(name)
+        }
+        components.queryItems = filtered.isEmpty ? nil : filtered
+        return components.string ?? urlString
+    }
 
     /// Grabs a frame from a video file and returns PNG-encoded bytes plus
     /// pixel dimensions. Returns nil if the asset has no video track or frame
@@ -292,6 +370,29 @@ public final class ClipboardService {
         CGImageDestinationAddImage(destination, cgImage, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return (mutableData as Data, Double(cgImage.width), Double(cgImage.height))
+    }
+
+    /// Extracts plain text from HTML data for search indexing. Returns nil
+    /// if parsing fails; caller should try a different format.
+    private func plainTextFromHTML(_ data: Data) -> String? {
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue
+        ]
+        guard let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else {
+            return nil
+        }
+        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
+    }
+
+    /// Extracts plain text from RTF/RTFD data for search indexing.
+    private func plainTextFromRTF(_ data: Data) -> String? {
+        guard let attributed = try? NSAttributedString(data: data, documentAttributes: nil) else {
+            return nil
+        }
+        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
     }
 
     private func imageDimensions(from data: Data) -> (width: Double, height: Double)? {

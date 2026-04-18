@@ -28,5 +28,18 @@
 	<false/>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.mlong.copied.url-scheme</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>copied</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
