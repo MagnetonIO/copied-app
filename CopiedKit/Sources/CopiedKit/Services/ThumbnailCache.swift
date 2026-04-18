@@ -23,13 +23,17 @@ public final class ThumbnailCache: @unchecked Sendable {
     }
 
     /// Returns a cached thumbnail, decoding and downsampling only on cache miss.
-    public func thumbnail(for clippingID: String, data: Data, maxSize: CGFloat = 120) -> NSImage {
+    /// `data` is an autoclosure so the caller's expression is only evaluated on
+    /// cache miss — critical when the underlying blob is `@Attribute(.externalStorage)`,
+    /// where a naive access faults the full image bytes off disk on every row render.
+    public func thumbnail(for clippingID: String, data: @autoclosure () -> Data?, maxSize: CGFloat = 120) -> NSImage {
         let key = "\(clippingID)-\(Int(maxSize))" as NSString
         if let cached = cache.object(forKey: key) {
             return cached.image
         }
 
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+        guard let resolved = data(),
+              let source = CGImageSourceCreateWithData(resolved as CFData, nil) else {
             return NSImage()
         }
 

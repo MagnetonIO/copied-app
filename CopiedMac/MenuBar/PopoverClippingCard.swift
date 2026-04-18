@@ -158,9 +158,9 @@ struct PopoverClippingCard: View {
     @ViewBuilder
     private var imagePreview: some View {
         HStack(spacing: 10) {
-            if let data = clipping.imageData {
+            if clipping.hasImage {
                 #if canImport(AppKit)
-                let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: data, maxSize: 96)
+                let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 96)
                 Image(nsImage: thumbnail)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

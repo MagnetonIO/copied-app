@@ -54,7 +54,7 @@ public struct ClippingRow: View {
     private var icon: some View {
         switch clipping.contentKind {
         case .image:
-            if let data = clipping.imageData, let image = makeImage(from: data) {
+            if clipping.hasImage, let image = cachedImage() {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -96,12 +96,12 @@ public struct ClippingRow: View {
             .background(.fill.tertiary, in: Capsule())
     }
 
-    private func makeImage(from data: Data) -> Image? {
+    private func cachedImage() -> Image? {
         #if canImport(AppKit)
-        let nsImage = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: data, maxSize: 32)
+        let nsImage = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 32)
         return Image(nsImage: nsImage)
         #elseif canImport(UIKit)
-        guard let uiImage = UIImage(data: data) else { return nil }
+        guard let data = clipping.imageData, let uiImage = UIImage(data: data) else { return nil }
         return Image(uiImage: uiImage)
         #endif
     }
