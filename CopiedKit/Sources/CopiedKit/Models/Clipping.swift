@@ -1,5 +1,8 @@
 import SwiftData
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @Model
 public final class Clipping {
@@ -125,6 +128,12 @@ extension Clipping {
         copiedDate = now
         addDate = now  // Update addDate so @Query sort puts copied items at top
     }
+
+    #if canImport(AppKit)
+    public var richTextPasteboardType: NSPasteboard.PasteboardType {
+        types.contains(NSPasteboard.PasteboardType.rtfd.rawValue) ? .rtfd : .rtf
+    }
+    #endif
 }
 
 // MARK: - Static Relative Date (avoids SwiftUI's Text(date, style: .relative) constant re-render)

@@ -25,6 +25,12 @@ struct MainWindowView: View {
                 searchText: searchText,
                 selectedClipping: $selectedClipping
             )
+            .onChange(of: appState.sidebarSelection) { _, _ in
+                selectedClipping = nil
+            }
+            .onChange(of: searchText) { _, _ in
+                selectedClipping = nil
+            }
             .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 500)
         } detail: {
             detailView

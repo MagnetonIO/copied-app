@@ -66,7 +66,7 @@ public final class PasteQueueService {
             pasteboard.setData(imageData, forType: .tiff)
         }
         if let rtfData = clipping.richTextData {
-            pasteboard.setData(rtfData, forType: .rtf)
+            pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
         }
     }
 

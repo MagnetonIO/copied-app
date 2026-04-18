@@ -49,8 +49,14 @@ struct PopoverView: View {
             return cached
         }
 
+        // Search and filters should cover the full history. The popover item
+        // count only limits the default recent list.
+        let source = (searchText.isEmpty && appState.filterKind == nil)
+            ? Array(clippings)
+            : Array(allClippings)
+
         // Sort by addDate descending — @Query may not re-sort on property updates
-        var result = Array(clippings).sorted { $0.addDate > $1.addDate }
+        var result = source.sorted { $0.addDate > $1.addDate }
 
         if let kind = appState.filterKind {
             result = result.filter { $0.contentKind == kind }
@@ -72,8 +78,18 @@ struct PopoverView: View {
                         clip.appName
                     ]
 
+                    let minimumFuzzyScore = max(8, searchText.count * 2)
+
                     for candidate in candidates.compactMap({ $0 }) {
-                        if let m = FuzzyMatcher.match(query: searchText, in: candidate), m.score > bestScore {
+                        if let range = candidate.range(of: searchText, options: [.caseInsensitive, .diacriticInsensitive]) {
+                            let score = 1_000 + searchText.count
+                            if score > bestScore {
+                                bestScore = score
+                                bestRanges = [range]
+                            }
+                        } else if let m = FuzzyMatcher.match(query: searchText, in: candidate),
+                                  m.score >= minimumFuzzyScore,
+                                  m.score > bestScore {
                             bestScore = m.score
                             bestRanges = m.matchedRanges
                         }
@@ -303,7 +319,7 @@ struct PopoverView: View {
 
     private var clippingList: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 if filtered.isEmpty {
                     VStack(spacing: 12) {
                         Spacer()
@@ -415,7 +431,8 @@ struct PopoverView: View {
                     }
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 4)
+                .padding(.top, 4)
+                .padding(.bottom, 14)
             }
         }
         .onAppear { scrollProxy = proxy }
@@ -611,7 +628,7 @@ struct PopoverView: View {
     // MARK: - Status Bar
 
     private var statusBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             HStack(spacing: 4) {
                 Circle()
                     .fill(clipboardService.isMonitoring ? .green : .red)
@@ -619,7 +636,9 @@ struct PopoverView: View {
                 Text(clipboardService.isMonitoring ? "Monitoring" : "Paused")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            .layoutPriority(1)
 
             syncStatusView
 
@@ -628,6 +647,8 @@ struct PopoverView: View {
             Text(GlobalHotkeyManager.shared.shortcutDescription)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
 
             Menu {
                 Button("Open Main Window") {
@@ -682,7 +703,9 @@ struct PopoverView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
+        .layoutPriority(1)
     }
 
     private var syncIcon: String {
@@ -764,7 +787,7 @@ struct PopoverView: View {
             pasteboard.setData(imageData, forType: type)
         }
         if let rtfData = clipping.richTextData {
-            pasteboard.setData(rtfData, forType: .rtf)
+            pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
         }
         if let htmlData = clipping.htmlData {
             pasteboard.setData(htmlData, forType: .html)

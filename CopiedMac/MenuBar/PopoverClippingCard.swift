@@ -14,11 +14,11 @@ struct PopoverClippingCard: View {
             if index < 9 {
                 Text("⌘\(index + 1)")
                     .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 20)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
             } else {
                 Spacer()
-                    .frame(width: 20)
+                    .frame(width: 24)
             }
 
             // Content type icon
@@ -35,15 +35,15 @@ struct PopoverClippingCard: View {
                     .font(.caption)
                     .foregroundStyle(.quaternary)
                     .lineLimit(1)
-                    .opacity(isHovered ? 0 : 1)
+                    .opacity(showsQuickActions ? 0 : 1)
 
                 quickActions
-                    .opacity(isHovered ? 1 : 0)
+                    .opacity(showsQuickActions ? 1 : 0)
             }
-            .frame(minWidth: 70, alignment: .trailing)
+            .frame(width: 76, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill((isHovered || isSelected) ? .white.opacity(0.08) : .clear)
@@ -89,6 +89,10 @@ struct PopoverClippingCard: View {
 
     // Search state for match highlighting
     var searchMatchRanges: [Range<String.Index>]?
+
+    private var showsQuickActions: Bool {
+        isHovered || isSelected
+    }
 
     @ViewBuilder
     private var contentPreview: some View {
@@ -156,11 +160,12 @@ struct PopoverClippingCard: View {
         HStack(spacing: 10) {
             if let data = clipping.imageData {
                 #if canImport(AppKit)
-                let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: data, maxSize: 120)
+                let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: data, maxSize: 96)
                 Image(nsImage: thumbnail)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 120, height: 80)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 96, height: 60)
+                    .background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 #endif
             }
@@ -200,8 +205,10 @@ struct PopoverClippingCard: View {
                 clipping.isFavorite.toggle()
             } label: {
                 Image(systemName: clipping.isFavorite ? "star.fill" : "star")
-                    .font(.caption)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(clipping.isFavorite ? .yellow : .secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -209,8 +216,10 @@ struct PopoverClippingCard: View {
                 clipping.moveToTrash()
             } label: {
                 Image(systemName: "trash")
-                    .font(.caption)
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

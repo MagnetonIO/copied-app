@@ -4,6 +4,7 @@ import Observation
 
 #if canImport(AppKit)
 import AppKit
+import ImageIO
 #elseif canImport(UIKit)
 import UIKit
 #endif
@@ -140,9 +141,9 @@ public final class ClipboardService {
             clipping.hasImage = true
             clipping.imageByteCount = tiffData.count
             clipping.imageFormat = "tiff"
-            if let image = NSImage(data: tiffData) {
-                clipping.imageWidth = Double(image.size.width)
-                clipping.imageHeight = Double(image.size.height)
+            if let dimensions = imageDimensions(from: tiffData) {
+                clipping.imageWidth = dimensions.width
+                clipping.imageHeight = dimensions.height
             }
             didCapture = true
         } else if let pngData = pasteboard.data(forType: .png) {
@@ -150,9 +151,9 @@ public final class ClipboardService {
             clipping.hasImage = true
             clipping.imageByteCount = pngData.count
             clipping.imageFormat = "png"
-            if let image = NSImage(data: pngData) {
-                clipping.imageWidth = Double(image.size.width)
-                clipping.imageHeight = Double(image.size.height)
+            if let dimensions = imageDimensions(from: pngData) {
+                clipping.imageWidth = dimensions.width
+                clipping.imageHeight = dimensions.height
             }
             didCapture = true
         } else if let imageData = imageDataFromFileURL(pasteboard) {
@@ -161,16 +162,16 @@ public final class ClipboardService {
             clipping.hasImage = true
             clipping.imageByteCount = imageData.data.count
             clipping.imageFormat = imageData.format
-            if let image = NSImage(data: imageData.data) {
-                clipping.imageWidth = Double(image.size.width)
-                clipping.imageHeight = Double(image.size.height)
+            if let dimensions = imageDimensions(from: imageData.data) {
+                clipping.imageWidth = dimensions.width
+                clipping.imageHeight = dimensions.height
             }
             didCapture = true
         }
 
         // Rich text (RTF/RTFD)
-        if captureRichText, let rtfData = pasteboard.data(forType: .rtf) ?? pasteboard.data(forType: .rtfd) {
-            clipping.richTextData = rtfData
+        if captureRichText, let richTextData = pasteboard.data(forType: .rtfd) ?? pasteboard.data(forType: .rtf) {
+            clipping.richTextData = richTextData
             clipping.hasRichText = true
             didCapture = true
         }
@@ -220,6 +221,17 @@ public final class ClipboardService {
     }
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
+
+    private func imageDimensions(from data: Data) -> (width: Double, height: Double)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            return nil
+        }
+
+        return (width.doubleValue, height.doubleValue)
+    }
 
     /// Reads image data from a file URL on the pasteboard (e.g. copying a screenshot file from Finder).
     /// Checks multiple pasteboard types: public.file-url, NSFilenamesPboardType, readObjects(NSURL).

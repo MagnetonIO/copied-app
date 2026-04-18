@@ -6,9 +6,10 @@ import CopiedKit
 enum SharedData {
     @MainActor
     static let container: ModelContainer = {
+        let cloudSyncEnabled = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
         // Try with CloudKit first, fall back to local-only if schema migration fails
         do {
-            return try CopiedSchema.makeContainer(cloudSync: true)
+            return try CopiedSchema.makeContainer(cloudSync: cloudSyncEnabled)
         } catch {
             NSLog("CloudKit container failed: \(error). Falling back to local-only.")
             do {
