@@ -5,6 +5,7 @@ import Observation
 #if canImport(AppKit)
 import AppKit
 import ImageIO
+import AVFoundation
 #elseif canImport(UIKit)
 import UIKit
 #endif
@@ -199,10 +200,21 @@ public final class ClipboardService {
         // its default app (Finder-copy of a .mov produces a placeholder image
         // thumbnail on the pasteboard; we augment it with the file path).
         if let fileURL = fileURLFromPasteboard(pasteboard),
-           Self.videoExtensions.contains(fileURL.pathExtension.lowercased()) {
+           Clipping.videoExtensions.contains(fileURL.pathExtension.lowercased()) {
             clipping.sourceURL = fileURL.absoluteString
             if clipping.title == nil {
                 clipping.title = fileURL.lastPathComponent
+            }
+            // If the pasteboard didn't carry a thumbnail, grab a frame from the
+            // video so the row has a recognizable preview rather than a blank
+            // file icon. Uses AVAssetImageGenerator with a 1-second seek.
+            if !clipping.hasImage, let thumb = generateVideoThumbnail(from: fileURL) {
+                clipping.imageData = thumb.data
+                clipping.imageByteCount = thumb.data.count
+                clipping.imageFormat = "png"
+                clipping.imageWidth = thumb.width
+                clipping.imageHeight = thumb.height
+                clipping.hasImage = true
             }
             didCapture = true
         }
@@ -246,7 +258,41 @@ public final class ClipboardService {
     }
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
-    public static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "mkv", "webm", "mpg", "mpeg"]
+
+    /// Grabs a frame from a video file and returns PNG-encoded bytes plus
+    /// pixel dimensions. Returns nil if the asset has no video track or frame
+    /// extraction fails (unreadable file, format not supported, etc.). Runs
+    /// synchronously on the capture thread — at the 512 px cap the decode is
+    /// fast enough (tens of ms) not to affect polling responsiveness.
+    private func generateVideoThumbnail(from url: URL) -> (data: Data, width: Double, height: Double)? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 512, height: 512)
+        let time = CMTime(seconds: 1.0, preferredTimescale: 600)
+
+        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else {
+            // Fall back to time zero — some clips are <1s long
+            generator.requestedTimeToleranceBefore = .positiveInfinity
+            generator.requestedTimeToleranceAfter = .positiveInfinity
+            guard let retryCGImage = try? generator.copyCGImage(at: .zero, actualTime: nil) else {
+                return nil
+            }
+            return encodePNG(retryCGImage)
+        }
+        return encodePNG(cgImage)
+    }
+
+    private func encodePNG(_ cgImage: CGImage) -> (data: Data, width: Double, height: Double)? {
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData as CFMutableData,
+                                                                  "public.png" as CFString,
+                                                                  1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return (mutableData as Data, Double(cgImage.width), Double(cgImage.height))
+    }
 
     private func imageDimensions(from data: Data) -> (width: Double, height: Double)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

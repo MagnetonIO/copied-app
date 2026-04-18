@@ -63,6 +63,24 @@ public struct ClippingRow: View {
             } else {
                 fallbackIcon("photo")
             }
+        case .video:
+            ZStack {
+                if clipping.hasImage, let image = cachedImage() {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.black.opacity(0.5))
+                        .frame(width: 32, height: 32)
+                }
+                Image(systemName: "play.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 1)
+            }
         case .link:
             fallbackIcon("link")
         case .richText:

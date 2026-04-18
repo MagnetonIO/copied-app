@@ -98,6 +98,7 @@ extension Clipping {
     }
 
     public var contentKind: ContentKind {
+        if isVideoFile { return .video }
         if hasImage { return .image }
         if url != nil { return .link }
         if isCode { return .code }
@@ -161,9 +162,20 @@ public enum ContentKind: String, Codable, Sendable {
     case text
     case richText
     case image
+    case video
     case link
     case file
     case code
     case html
     case unknown
+}
+
+extension Clipping {
+    public static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "mkv", "webm", "mpg", "mpeg"]
+
+    public var isVideoFile: Bool {
+        guard let src = sourceURL,
+              let url = URL(string: src) else { return false }
+        return Self.videoExtensions.contains(url.pathExtension.lowercased())
+    }
 }

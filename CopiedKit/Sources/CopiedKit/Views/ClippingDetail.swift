@@ -67,6 +67,7 @@ public struct ClippingDetail: View {
         case .text: "doc.text"
         case .richText: "doc.richtext"
         case .image: "photo"
+        case .video: "play.rectangle.fill"
         case .link: "link"
         case .file: "doc"
         case .code: "chevron.left.forwardslash.chevron.right"

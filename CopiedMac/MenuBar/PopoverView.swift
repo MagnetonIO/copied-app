@@ -291,7 +291,7 @@ struct PopoverView: View {
                 }
             }
             Divider()
-            ForEach([ContentKind.text, .richText, .image, .link, .code], id: \.self) { kind in
+            ForEach([ContentKind.text, .richText, .image, .video, .link, .code], id: \.self) { kind in
                 Button {
                     appState.filterKind = kind
                 } label: {
@@ -794,12 +794,11 @@ struct PopoverView: View {
     }
 
     private func videoFileURL(for clipping: Clipping) -> URL? {
-        guard let src = clipping.sourceURL,
+        guard clipping.isVideoFile,
+              let src = clipping.sourceURL,
               let url = URL(string: src),
-              url.isFileURL else { return nil }
-        let ext = url.pathExtension.lowercased()
-        guard ClipboardService.videoExtensions.contains(ext) else { return nil }
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+              url.isFileURL,
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 

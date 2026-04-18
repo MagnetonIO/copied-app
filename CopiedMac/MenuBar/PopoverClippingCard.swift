@@ -66,6 +66,7 @@ struct PopoverClippingCard: View {
         case .text: "doc.text"
         case .richText: "doc.richtext"
         case .image: "photo"
+        case .video: "play.rectangle.fill"
         case .link: "link"
         case .code: "chevron.left.forwardslash.chevron.right"
         case .html: "globe"
@@ -79,6 +80,7 @@ struct PopoverClippingCard: View {
         case .link: .blue
         case .code: .green
         case .image: .purple
+        case .video: .pink
         case .richText: .orange
         case .html: .cyan
         default: .secondary
@@ -99,6 +101,8 @@ struct PopoverClippingCard: View {
         switch clipping.contentKind {
         case .image:
             imagePreview
+        case .video:
+            videoPreview
         case .link:
             linkPreview
         case .code:
@@ -178,6 +182,46 @@ struct PopoverClippingCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var videoPreview: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                #if canImport(AppKit)
+                if clipping.hasImage {
+                    let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 96)
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 96, height: 60)
+                        .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.black.opacity(0.5))
+                        .frame(width: 96, height: 60)
+                        .overlay(
+                            Image(systemName: "video")
+                                .foregroundStyle(.white.opacity(0.6))
+                        )
+                }
+                #endif
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(clipping.title ?? "Video")
+                    .font(.system(.body, weight: .medium))
+                    .lineLimit(1)
+                Text("Video")
+                    .font(.caption)
+                    .foregroundStyle(.pink)
             }
         }
     }
