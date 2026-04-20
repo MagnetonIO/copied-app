@@ -23,7 +23,7 @@ struct PopoverView: View {
     /// bottom, capped at `maxVisibleCount` so memory stays bounded.
     @State private var visibleCount: Int = 100
     private let pageSize: Int = 100
-    private let maxVisibleCount: Int = 2000
+    private let maxVisibleCount: Int = 500
 
     @State private var searchText = ""
     @State private var hoveredID: String?
@@ -163,7 +163,7 @@ struct PopoverView: View {
             statusBar
         }
         .frame(width: 400, height: 540)
-        .background(.ultraThinMaterial)
+        .background(.regularMaterial)
         .overlay { imagePreviewOverlay }
         .onKeyPress(.escape) {
             if previewClipID != nil {
@@ -373,18 +373,19 @@ struct PopoverView: View {
                                 }
                             }
                             .onHover { isHovered in
+                                // Hover purely visual — no selectedIndex writes during scroll.
+                                // Selection is driven by keyboard nav and tap.
                                 if isHovered {
                                     let currentMouse = NSEvent.mouseLocation
-                                    // Only switch to mouse mode if the mouse actually moved
-                                    // (scrolling causes hover events without mouse movement)
                                     let mouseMoved = abs(currentMouse.x - lastMouseLocation.x) > 2 ||
                                                      abs(currentMouse.y - lastMouseLocation.y) > 2
                                     lastMouseLocation = currentMouse
 
-                                    if mouseMoved || !isKeyboardNavigating {
+                                    if mouseMoved {
                                         isKeyboardNavigating = false
-                                        hoveredID = clipping.clippingID
-                                        selectedIndex = index
+                                        if hoveredID != clipping.clippingID {
+                                            hoveredID = clipping.clippingID
+                                        }
                                     }
                                 } else if hoveredID == clipping.clippingID {
                                     hoveredID = nil

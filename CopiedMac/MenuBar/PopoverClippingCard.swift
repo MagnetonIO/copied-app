@@ -49,8 +49,6 @@ struct PopoverClippingCard: View {
                 .fill((isHovered || isSelected) ? .white.opacity(0.08) : .clear)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 
     // MARK: - Content Type Icon
