@@ -163,7 +163,7 @@ struct PopoverView: View {
             statusBar
         }
         .frame(width: 400, height: 540)
-        .background(.regularMaterial)
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay { imagePreviewOverlay }
         .onKeyPress(.escape) {
             if previewClipID != nil {
