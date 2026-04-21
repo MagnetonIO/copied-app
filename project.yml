@@ -64,6 +64,10 @@ targets:
           - iCloud.com.mlong.copied
         com.apple.developer.icloud-services:
           - CloudKit
+    scheme:
+      # Attach the local StoreKit config so Xcode Run simulates IAP purchases
+      # without requiring the App Store Connect product to exist.
+      storeKitConfiguration: Copied.storekit
 
   # ──────────────────────────────────────────
   # iOS App

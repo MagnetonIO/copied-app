@@ -1,1 +1,9 @@
-Initial release.
+First release for the Mac App Store.
+
+• Fast menu-bar clipboard manager with keyboard-first navigation
+• Full-text search across text, rich text, and HTML
+• Smart detection for links, code, images, files, and videos
+• Favorites, trash, and custom lists
+• Global hotkey (⌃⇧C) opens the popover from any app
+• copied:// URL scheme for automation
+• Optional iCloud Sync (one-time in-app purchase) keeps history in sync across all your Macs — local history is always free

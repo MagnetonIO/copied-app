@@ -31,7 +31,16 @@ public final class PurchaseManager {
 
     private init() {
         updatesTask = listenForTransactions()
+        #if DEBUG
+        // Dev-only bypass: set `_skipStoreKitReconcile=YES` in the app's prefs to
+        // keep a manually-flipped iCloudSyncPurchased value. Lets the paid path be
+        // exercised without Xcode's StoreKit Test harness attached.
+        if !UserDefaults.standard.bool(forKey: "_skipStoreKitReconcile") {
+            Task { await refreshEntitlements() }
+        }
+        #else
         Task { await refreshEntitlements() }
+        #endif
         Task { await loadProduct() }
     }
 

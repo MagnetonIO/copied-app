@@ -46,6 +46,10 @@ struct SettingsView: View {
             syncTab
                 .tabItem { Label("Sync", systemImage: "icloud") }
                 .tag(3)
+
+            aboutTab
+                .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(4)
         }
         .frame(width: 480, height: 360)
         .toggleStyle(.switch)
@@ -376,6 +380,92 @@ struct SettingsView: View {
         .task { await PurchaseManager.shared.loadProduct() }
     }
     #endif
+
+    // MARK: - About
+
+    private var appVersion: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    private var aboutTab: some View {
+        Form {
+            Section {
+                HStack(spacing: 16) {
+                    if let appIcon = NSImage(named: "AppIcon") {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .frame(width: 64, height: 64)
+                    } else {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.tint)
+                            .frame(width: 64, height: 64)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Copied App")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Text("Version \(appVersion)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Text("© 2026 Magneton Labs, LLC")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("Support") {
+                Button {
+                    openSupportEmail()
+                } label: {
+                    LabeledContent("Email") {
+                        Text("support@getcopied.app")
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    if let url = URL(string: "https://getcopied.app") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    LabeledContent("Website") {
+                        Text("getcopied.app")
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            #if MAS_BUILD
+            Section("iCloud Sync") {
+                HStack(spacing: 6) {
+                    Image(systemName: iCloudSyncPurchased ? "checkmark.icloud.fill" : "lock.icloud")
+                        .foregroundStyle(iCloudSyncPurchased ? .green : .secondary)
+                    Text(iCloudSyncPurchased ? "Unlocked" : "Not unlocked")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            #endif
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    private func openSupportEmail() {
+        let body = "\n\n\n—\nApp version: \(appVersion)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)"
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let subject = "Copied App Support".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: "mailto:support@getcopied.app?subject=\(subject)&body=\(body)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     private func emptyTrash() {
         let descriptor = FetchDescriptor<Clipping>(

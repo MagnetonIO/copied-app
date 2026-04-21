@@ -1,1 +1,17 @@
-Copied is a menu bar clipboard manager. Launch the app and its icon appears in the menu bar — click it or press the configured hotkey (default: ⌃⇧C) to open the popover and view clipboard history. No sign-in is required. iCloud Sync is an optional non-consumable in-app purchase; without it, history is stored locally only.
+Copied App is a menu bar clipboard manager. After install, its icon appears in the system menu bar — click it or press ⌃⇧C from any app to open the popover and view clipboard history. No sign-in required.
+
+In-App Purchase:
+iCloud Sync is a $4.99 non-consumable in-app purchase (product ID: com.mlong.copied.icloud_sync). Without it, clipboard history is stored locally only. To test the purchase flow:
+
+1. Open Settings (⌘,) → Sync tab
+2. Click "Unlock iCloud Sync"
+3. Complete the purchase via a sandbox tester account
+4. The app will prompt to quit and relaunch
+5. On relaunch, iCloud Sync becomes active — confirmed by "Sync is active" indicator
+
+"Restore Purchases" is available in the same Sync tab.
+
+Permissions:
+The app requests macOS Accessibility permission on first launch so the global hotkey (⌃⇧C) can be triggered from any app. This is optional; without it, the user opens the popover by clicking the menu bar icon.
+
+Support: support@getcopied.app
