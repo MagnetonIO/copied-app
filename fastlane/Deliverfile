@@ -1,0 +1,16 @@
+app_identifier "com.mlong.copied.mac"
+team_id "7727LYTG96"
+platform "osx"
+
+# Skip build upload here — the Fastfile lanes handle that explicitly.
+skip_binary_upload true
+
+# Path layout deliver expects:
+#   fastlane/metadata/<locale>/*.txt        — per-locale text fields
+#   fastlane/metadata/review_information/*  — review contact/demo creds
+#   fastlane/metadata/copyright.txt         — non-localized
+#   fastlane/screenshots/<locale>/*.png     — screenshots
+#   fastlane/metadata/mac_app_previews/<locale>/ — optional .mov previews
+
+metadata_path "./fastlane/metadata"
+screenshots_path "./fastlane/screenshots"

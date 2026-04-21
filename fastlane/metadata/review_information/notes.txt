@@ -1,0 +1,1 @@
+Copied is a menu bar clipboard manager. Launch the app and its icon appears in the menu bar — click it or press the configured hotkey (default: ⌃⇧C) to open the popover and view clipboard history. No sign-in is required. iCloud Sync is an optional non-consumable in-app purchase; without it, history is stored locally only.

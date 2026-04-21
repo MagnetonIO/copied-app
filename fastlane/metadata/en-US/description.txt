@@ -1,0 +1,15 @@
+Copied is a fast, menu-bar clipboard manager for macOS.
+
+Every copy you make — text, images, files, code snippets, links — is saved automatically and searchable from a single keyboard shortcut. Pin your favorites, organize with lists, and paste rich content back with full fidelity.
+
+FEATURES
+• Fast menu bar popover with keyboard-first navigation
+• Full-text search, including rich text and HTML bodies
+• Smart content detection for links, code, images, and files
+• Rich Copy As: write the exact pasteboard types your target app expects
+• copied:// URL scheme for automation
+• Automatic tracking-parameter stripping on copied URLs
+• Favorites and trash with time-based retention
+• Optional iCloud sync (in-app purchase) to keep your clipboard in sync across Macs
+
+Designed for writers, developers, and anyone who lives on the clipboard.

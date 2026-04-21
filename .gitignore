@@ -24,6 +24,21 @@ Pods/
 
 # Secrets
 *.p12
+*.p8
 *.mobileprovision
 *.provisionprofile
+.keys/
+.env
+.env.local
+.env.*.local
 .next/
+
+# fastlane
+fastlane/api_key.json
+fastlane/report.xml
+fastlane/README.md
+fastlane/test_output
+fastlane/screenshots/**/*.png
+fastlane/screenshots/**/*.jpg
+vendor/bundle/
+.bundle/

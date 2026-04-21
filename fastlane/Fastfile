@@ -1,5 +1,28 @@
 default_platform(:mac)
 
+# Load .env at repo root (gitignored). Provides:
+#   APP_STORE_CONNECT_API_KEY_ID
+#   APP_STORE_CONNECT_API_ISSUER_ID
+#   APP_STORE_CONNECT_API_KEY_PATH  (relative to repo root, e.g. .keys/AuthKey_XXX.p8)
+require "dotenv"
+Dotenv.load(File.expand_path("../.env", __dir__))
+
+# App Store Connect API key auth. Uses the .p8 on disk — key never leaves the machine.
+def asc_api_key
+  key_id = ENV["APP_STORE_CONNECT_API_KEY_ID"]
+  issuer_id = ENV["APP_STORE_CONNECT_API_ISSUER_ID"]
+  key_path = ENV["APP_STORE_CONNECT_API_KEY_PATH"]
+  return nil if key_id.nil? || issuer_id.nil? || key_path.nil?
+  absolute_key_path = File.expand_path(key_path, File.expand_path("..", __dir__))
+  return nil unless File.exist?(absolute_key_path)
+  app_store_connect_api_key(
+    key_id: key_id,
+    issuer_id: issuer_id,
+    key_filepath: absolute_key_path,
+    in_house: false
+  )
+end
+
 platform :mac do
   # ── CI ──────────────────────────────────────────────
 
@@ -16,11 +39,10 @@ platform :mac do
     UI.success("CI build passed")
   end
 
-  # ── Signed Build ────────────────────────────────────
+  # ── Signed Build (dev) ──────────────────────────────
 
-  desc "Build signed Release .app via xcodebuild archive"
+  desc "Build signed Release .app via xcodebuild archive (development signing)"
   lane :build_signed do |options|
-    # Install certificate + profile from environment (CI) or local keychain
     if ENV["CERTIFICATE_P12"]
       setup_ci_signing
     end
@@ -61,7 +83,7 @@ platform :mac do
     dmg_path
   end
 
-  # ── Developer ID + Notarization ─────────────────────
+  # ── Developer ID + Notarization (direct distribution) ─
 
   desc "Build with Developer ID signing and notarize for public distribution"
   lane :release do
@@ -80,7 +102,6 @@ platform :mac do
 
     app_path = "build/release/Copied.app"
 
-    # Notarize
     if ENV["APP_STORE_CONNECT_API_KEY_KEY_ID"]
       notarize(
         package: app_path,
@@ -89,14 +110,12 @@ platform :mac do
       )
     end
 
-    # Create DMG
     version = last_git_tag || Time.now.strftime('%Y%m%d')
     dmg_name = "Copied-#{version}.dmg"
     dmg_path = "build/#{dmg_name}"
 
     sh("hdiutil create -volname 'Copied' -srcfolder '../#{app_path}' -ov -format UDZO '../#{dmg_path}'")
 
-    # Notarize DMG too
     if ENV["APP_STORE_CONNECT_API_KEY_KEY_ID"]
       notarize(
         package: "../#{dmg_path}",
@@ -107,6 +126,148 @@ platform :mac do
 
     UI.success("Release DMG: #{dmg_path}")
     dmg_path
+  end
+
+  # ── Mac App Store ───────────────────────────────────
+  # One-time setup is automated via `mas_setup` below. Only thing you still do by hand:
+  #   1. App Store Connect API key at .keys/AuthKey_*.p8, referenced from .env
+  #   2. App record "Copied App" created in App Store Connect (already done)
+  # `mas_setup` creates:
+  #   - "Apple Distribution" cert (signs the .app) if missing from Keychain
+  #   - "Mac Installer Distribution" cert (signs the .pkg) if missing from Keychain
+  #   - App Store provisioning profile bound to com.mlong.copied.mac with iCloud capability
+  # CopiedMac-MAS.entitlements already present (app-sandbox + iCloud). Sandbox compatibility
+  # still needs a local run to verify (CloudKit, menu bar, global hotkey).
+
+  desc "One-time: create MAS cert + installer cert + provisioning profile via API"
+  lane :mas_setup do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key. Check .env + .keys/AuthKey_*.p8") unless key
+
+    UI.header("Fetching/creating Apple Distribution cert")
+    get_certificates(
+      api_key: key,
+      platform: "macos",
+      generate_apple_certs: true,
+      output_path: "./.keys"
+    )
+
+    UI.header("Fetching/creating Mac Installer Distribution cert")
+    get_certificates(
+      api_key: key,
+      platform: "macos",
+      type: "mac_installer_distribution",
+      output_path: "./.keys"
+    )
+
+    UI.header("Fetching/creating Mac App Store provisioning profile")
+    get_provisioning_profile(
+      api_key: key,
+      platform: "macos",
+      app_identifier: "com.mlong.copied.mac",
+      app_store: true,
+      provisioning_name: "Copied Mac MAS",
+      output_path: "./.keys",
+      filename: "Copied_Mac_MAS.provisionprofile"
+    )
+
+    UI.success("MAS setup complete. Certs are in Keychain; profile at .keys/Copied_Mac_MAS.provisionprofile (also installed).")
+  end
+
+  desc "Build signed MAS .pkg ready for Transporter/upload"
+  lane :mas_build do
+    build_mac_app(
+      project: "Copied.xcodeproj",
+      scheme: "CopiedMac",
+      configuration: "Release",
+      output_directory: "build/mas",
+      output_name: "Copied.app",
+      export_method: "app-store",
+      export_team_id: "7727LYTG96",
+      clean: true,
+      destination: "generic/platform=macOS",
+      xcargs: "CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_IDENTITY='3rd Party Mac Developer Application' CODE_SIGN_STYLE=Manual",
+      export_options: {
+        signingStyle: "manual",
+        teamID: "7727LYTG96",
+        provisioningProfiles: {
+          "com.mlong.copied.mac" => "Copied Mac MAS"
+        }
+      }
+    )
+    UI.success("MAS build complete: build/mas/Copied.pkg")
+  end
+
+  desc "Upload current MAS .pkg to TestFlight"
+  lane :testflight do
+    mas_build unless File.exist?("../build/mas/Copied.pkg")
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    upload_to_testflight(
+      api_key: key,
+      pkg: "build/mas/Copied.pkg",
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Upload metadata + screenshots only (no build, no submit)"
+  lane :upload_metadata do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    upload_to_app_store(
+      api_key: key,
+      platform: "osx",
+      skip_binary_upload: true,
+      skip_screenshots: false,
+      skip_metadata: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      submit_for_review: false
+    )
+  end
+
+  desc "Upload screenshots only"
+  lane :upload_screenshots do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    upload_to_app_store(
+      api_key: key,
+      platform: "osx",
+      skip_binary_upload: true,
+      skip_screenshots: false,
+      skip_metadata: true,
+      force: true,
+      submit_for_review: false
+    )
+  end
+
+  desc "Full release: MAS build + upload + metadata + submit for review"
+  lane :mas_release do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    mas_build
+
+    upload_to_app_store(
+      api_key: key,
+      platform: "osx",
+      pkg: "build/mas/Copied.pkg",
+      skip_screenshots: false,
+      skip_metadata: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      submit_for_review: true,
+      automatic_release: false,
+      submission_information: {
+        add_id_info_uses_idfa: false,
+        export_compliance_uses_encryption: false
+      }
+    )
+
+    UI.success("Submitted Copied App to App Review")
   end
 
   # ── Helpers ─────────────────────────────────────────
