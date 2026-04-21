@@ -184,7 +184,7 @@ platform :mac do
 
     UI.header("Archiving with MAS entitlements + Apple Development signing (local-run)")
     archive_path = "build/mas-debug/Copied.xcarchive"
-    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Debug -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Automatic CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements -allowProvisioningUpdates archive | tail -20))
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Debug -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Automatic CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG MAS_BUILD' -allowProvisioningUpdates archive | tail -20))
 
     app_in_archive = "#{repo}/#{archive_path}/Products/Applications/Copied.app"
     sh("rm -rf '#{repo}/build/mas-debug/Copied.app' && cp -R '#{app_in_archive}' '#{repo}/build/mas-debug/Copied.app'")
@@ -201,7 +201,7 @@ platform :mac do
 
     UI.header("Archiving with MAS entitlements + Apple Distribution signing")
     archive_path = "build/mas/Copied.xcarchive"
-    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Release -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements -allowProvisioningUpdates archive | tail -40))
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Release -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD' -allowProvisioningUpdates archive | tail -40))
 
     UI.header("Exporting .pkg for App Store submission")
     export_plist = "build/mas/ExportOptions-MAS.plist"

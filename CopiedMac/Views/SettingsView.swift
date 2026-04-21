@@ -229,31 +229,52 @@ struct SettingsView: View {
     // MARK: - Sync
 
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    #if MAS_BUILD
+    @AppStorage(PurchaseManager.purchasedKey) private var iCloudSyncPurchased = false
+    @State private var showRestartAlert = false
+    @State private var restartReason: String = ""
+    #endif
 
     private var syncTab: some View {
         Form {
             Section {
                 Toggle("iCloud Sync", isOn: $cloudSyncEnabled)
                     .tint(.accentColor)
-                    .onChange(of: cloudSyncEnabled) { _, val in syncMonitor.isEnabled = val }
+                    .onChange(of: cloudSyncEnabled) { oldValue, newValue in
+                        #if MAS_BUILD
+                        // MAS: flipping the toggle ON when unpurchased triggers the buy sheet.
+                        // On cancel, revert the toggle.
+                        if newValue && !iCloudSyncPurchased {
+                            Task {
+                                let bought = await PurchaseManager.shared.purchase()
+                                if bought {
+                                    restartReason = "iCloud Sync unlocked. Quit and reopen Copied App to start syncing."
+                                    showRestartAlert = true
+                                } else {
+                                    cloudSyncEnabled = false
+                                }
+                            }
+                            return
+                        }
+                        #endif
+                        syncMonitor.isEnabled = newValue
+                    }
 
-                if cloudSyncEnabled {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.icloud.fill")
-                            .foregroundStyle(.green)
-                            .font(.callout)
-                        Text("Sync is active")
-                            .foregroundStyle(.secondary)
-                    }
+                #if MAS_BUILD
+                if !iCloudSyncPurchased {
+                    purchaseCTA
+                } else if cloudSyncEnabled {
+                    activeStateRow
                 } else {
-                    HStack(spacing: 6) {
-                        Image(systemName: "xmark.icloud")
-                            .foregroundStyle(.secondary)
-                            .font(.callout)
-                        Text("Sync is paused")
-                            .foregroundStyle(.secondary)
-                    }
+                    pausedStateRow
                 }
+                #else
+                if cloudSyncEnabled {
+                    activeStateRow
+                } else {
+                    pausedStateRow
+                }
+                #endif
             }
 
             Section {
@@ -263,11 +284,98 @@ struct SettingsView: View {
                 Text("Both devices must be signed into the same iCloud account.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                #if MAS_BUILD
+                Text("iCloud Sync is a one-time in-app purchase. Local clipboard history remains free.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                #endif
             }
         }
         .formStyle(.grouped)
         .padding()
+        #if MAS_BUILD
+        .alert("Restart to Apply", isPresented: $showRestartAlert) {
+            Button("Quit Copied App") { NSApplication.shared.terminate(nil) }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text(restartReason)
+        }
+        #endif
     }
+
+    private var activeStateRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.icloud.fill")
+                .foregroundStyle(.green)
+                .font(.callout)
+            Text("Sync is active")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var pausedStateRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "xmark.icloud")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+            Text("Sync is paused")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    #if MAS_BUILD
+    @ViewBuilder
+    private var purchaseCTA: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.icloud")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                Text("Sync is locked")
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button {
+                    Task {
+                        let bought = await PurchaseManager.shared.purchase()
+                        if bought {
+                            cloudSyncEnabled = true
+                            restartReason = "iCloud Sync unlocked. Quit and reopen Copied App to start syncing."
+                            showRestartAlert = true
+                        }
+                    }
+                } label: {
+                    if let price = PurchaseManager.shared.product?.displayPrice {
+                        Text("Unlock iCloud Sync — \(price)")
+                    } else {
+                        Text("Unlock iCloud Sync")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(PurchaseManager.shared.purchaseInFlight || PurchaseManager.shared.product == nil)
+
+                Button("Restore Purchases") {
+                    Task {
+                        let restored = await PurchaseManager.shared.restore()
+                        if restored {
+                            cloudSyncEnabled = true
+                            restartReason = "Purchase restored. Quit and reopen Copied App to enable sync."
+                            showRestartAlert = true
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(PurchaseManager.shared.purchaseInFlight)
+            }
+            if let error = PurchaseManager.shared.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .task { await PurchaseManager.shared.loadProduct() }
+    }
+    #endif
 
     private func emptyTrash() {
         let descriptor = FetchDescriptor<Clipping>(

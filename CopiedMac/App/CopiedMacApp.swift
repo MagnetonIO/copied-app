@@ -6,7 +6,16 @@ import CopiedKit
 enum SharedData {
     @MainActor
     static let container: ModelContainer = {
-        let cloudSyncEnabled = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        let userToggle = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        #if MAS_BUILD
+        // App Store build: sync also gated behind the non-consumable IAP. We read the
+        // cached flag synchronously here; PurchaseManager re-verifies asynchronously
+        // after launch and prompts a restart on mismatch.
+        let purchased = UserDefaults.standard.bool(forKey: "iCloudSyncPurchased")
+        let cloudSyncEnabled = userToggle && purchased
+        #else
+        let cloudSyncEnabled = userToggle
+        #endif
         // Try with CloudKit first, fall back to local-only if schema migration fails
         do {
             return try CopiedSchema.makeContainer(cloudSync: cloudSyncEnabled)
@@ -82,7 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "popoverItemCount": 100,
             "maxHistorySize": 5000,
             "stripURLTrackingParams": true,
-            "retentionDays": -1
+            "retentionDays": -1,
+            "iCloudSyncPurchased": false
         ])
     }()
 
@@ -117,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardService.start()
         clipboardService.trimByAge()
         syncMonitor.start()
+
+        #if MAS_BUILD
+        // Start the Transaction.updates listener early so Ask-to-Buy approvals,
+        // refunds, and revocations that arrive after launch are caught.
+        _ = PurchaseManager.shared
+        #endif
 
         // Set up status bar popover
         StatusBarController.shared.appState = appState

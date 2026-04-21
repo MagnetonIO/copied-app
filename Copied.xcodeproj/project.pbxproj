@@ -17,6 +17,7 @@
 		6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B039D4406990AB5444E169A /* PopoverClippingCard.swift */; };
 		6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */; };
 		724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68365944B55FF8FB14382D5 /* PermissionManager.swift */; };
+		7C4AB7E0EDA52B1D93EB04C2 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89D5378AF1994A746168FF3 /* PurchaseManager.swift */; };
 		8A19023873943BB97C5EAC15 /* ClipListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D511C12F7A91C1F037BE1262 /* ClipListTests.swift */; };
 		8A8AC5000C43193E11BE3585 /* CopiedMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */; };
 		8D03DD120B7D7E5D83463DD3 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */; };
@@ -45,17 +46,19 @@
 		0DC10E8877F0AF5A1FEB431F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		253D7474DF1C1851733BBD77 /* QATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QATests.swift; sourceTree = "<group>"; };
-		294BCC0938D4BD6227DD3159 /* Copied.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Copied.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		294BCC0938D4BD6227DD3159 /* CopiedIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CopiedIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2977CA0AC8339871C8329B52 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardServiceTests.swift; sourceTree = "<group>"; };
-		2CE2F42CF5A98ABAE5D2E11E /* CopiedKit */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CopiedKit; sourceTree = SOURCE_ROOT; };
+		2CE2F42CF5A98ABAE5D2E11E /* CopiedKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CopiedKit; path = CopiedKit; sourceTree = SOURCE_ROOT; };
 		3A402C52089CDB3C6E28A019 /* PasteQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteQueueTests.swift; sourceTree = "<group>"; };
+		3EF43CB043C2D52CBB11AEC0 /* CopiedMac-MAS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CopiedMac-MAS.entitlements"; sourceTree = "<group>"; };
 		4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedIOSApp.swift; sourceTree = "<group>"; };
 		5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
 		6B039D4406990AB5444E169A /* PopoverClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverClippingCard.swift; sourceTree = "<group>"; };
 		8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingEditSheet.swift; sourceTree = "<group>"; };
 		96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedMacApp.swift; sourceTree = "<group>"; };
+		A89D5378AF1994A746168FF3 /* PurchaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
 		B81E8FF99A9750B5718F93BF /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
 		BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CopiedKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C446B8F58834A31AD60297C5 /* MainWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowView.swift; sourceTree = "<group>"; };
@@ -65,7 +68,7 @@
 		DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingModelTests.swift; sourceTree = "<group>"; };
 		E1E7F9BDEBDC0D938D2DA15B /* IOSContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSContentView.swift; sourceTree = "<group>"; };
 		F0A0703C9592958941B00289 /* CopiedMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CopiedMac.entitlements; sourceTree = "<group>"; };
-		FCA7831A76D46DF3744FCD06 /* Copied.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Copied.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCA7831A76D46DF3744FCD06 /* CopiedMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CopiedMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,6 +146,14 @@
 			path = CopiedIOS;
 			sourceTree = "<group>";
 		};
+		A9CC05F3ABCA3F9BF0BA556B /* Purchases */ = {
+			isa = PBXGroup;
+			children = (
+				A89D5378AF1994A746168FF3 /* PurchaseManager.swift */,
+			);
+			path = Purchases;
+			sourceTree = "<group>";
+		};
 		BE6EF77304491F7E7A307ACB /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -170,9 +181,9 @@
 		E8304788DC23CFE54025D17E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				294BCC0938D4BD6227DD3159 /* Copied.app */,
+				294BCC0938D4BD6227DD3159 /* CopiedIOS.app */,
 				BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */,
-				FCA7831A76D46DF3744FCD06 /* Copied.app */,
+				FCA7831A76D46DF3744FCD06 /* CopiedMac.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -195,10 +206,12 @@
 			children = (
 				2D7D3266038570779ECE6C70 /* App */,
 				5631CB527AD0A3489E471AE7 /* MenuBar */,
+				A9CC05F3ABCA3F9BF0BA556B /* Purchases */,
 				45D65E775D169A9E6E5E6023 /* Views */,
 				6685C3FE4F8F79B248F5D13C /* Windows */,
 				0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */,
 				2977CA0AC8339871C8329B52 /* Assets.xcassets */,
+				3EF43CB043C2D52CBB11AEC0 /* CopiedMac-MAS.entitlements */,
 				F0A0703C9592958941B00289 /* CopiedMac.entitlements */,
 				0DC10E8877F0AF5A1FEB431F /* Info.plist */,
 			);
@@ -236,7 +249,7 @@
 				C8685AAFE499AE75FFFF857C /* CopiedKit */,
 			);
 			productName = CopiedMac;
-			productReference = FCA7831A76D46DF3744FCD06 /* Copied.app */;
+			productReference = FCA7831A76D46DF3744FCD06 /* CopiedMac.app */;
 			productType = "com.apple.product-type.application";
 		};
 		BCFE06295783F2744BA56339 /* CopiedKitTests */ = {
@@ -275,7 +288,7 @@
 				12BA8D72684F91B1163A3BF6 /* CopiedKit */,
 			);
 			productName = CopiedIOS;
-			productReference = 294BCC0938D4BD6227DD3159 /* Copied.app */;
+			productReference = 294BCC0938D4BD6227DD3159 /* CopiedIOS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -288,12 +301,15 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					67CF2DC485C5993966B494D7 = {
+						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
 					};
 					BCFE06295783F2744BA56339 = {
+						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
 					};
 					F47662F6E87A5A3AD6388873 = {
+						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -346,6 +362,7 @@
 				724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */,
 				6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */,
 				BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */,
+				7C4AB7E0EDA52B1D93EB04C2 /* PurchaseManager.swift in Sources */,
 				E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */,
 				DD265A8A1086BACBC893AAF5 /* StatusBarController.swift in Sources */,
 			);
@@ -389,7 +406,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 7727LYTG96;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Copied;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -443,6 +459,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7727LYTG96;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -514,7 +531,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 7727LYTG96;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Copied;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -568,6 +584,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7727LYTG96;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -596,13 +613,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 7727LYTG96;
+				CURRENT_PROJECT_VERSION = 5;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mlong.copied.mac;
 				PRODUCT_NAME = Copied;
 				SDKROOT = macosx;
@@ -616,13 +634,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 7727LYTG96;
+				CURRENT_PROJECT_VERSION = 5;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mlong.copied.mac;
 				PRODUCT_NAME = Copied;
 				SDKROOT = macosx;

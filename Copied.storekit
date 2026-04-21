@@ -1,0 +1,34 @@
+{
+  "identifier" : "BA91B5E3-0001-4F9C-8D70-1A2B3C4D5E6F",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "CopiedICloudSync",
+      "localizations" : [
+        {
+          "description" : "Sync your clipboard history across all your Macs via iCloud. One-time purchase.",
+          "displayName" : "iCloud Sync",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.mlong.copied.icloud_sync",
+      "referenceName" : "iCloud Sync",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "0",
+    "_developerTeamID" : "7727LYTG96",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
