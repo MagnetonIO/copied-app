@@ -10,6 +10,42 @@ import AVFoundation
 import UIKit
 #endif
 
+/// Sendable snapshot of a single pasteboard read, produced on the main actor.
+/// Passed to `ClipboardService.processCapture(_:captureImages:captureRichText:)`
+/// which runs in a detached task.
+private struct CaptureInput: Sendable {
+    let addDate: Date
+    let types: [String]
+    let text: String?
+    let urlString: String?
+    let tiffData: Data?
+    let pngData: Data?
+    let richTextData: Data?
+    let htmlData: Data?
+    let candidateFileURLs: [URL]
+    let appName: String?
+    let appBundleID: String?
+    let deviceName: String
+}
+
+/// Output of the detached Phase B. Hands back to the main actor for Clipping construction
+/// and insertion. All fields are Sendable value types.
+private struct CaptureResult: Sendable {
+    var imageData: Data?
+    var imageFormat: String?
+    var imageWidth: Double = 0
+    var imageHeight: Double = 0
+    var imageByteCount: Int = 0
+    var hasImage: Bool = false
+    var richTextData: Data?
+    var hasRichText: Bool = false
+    var htmlData: Data?
+    var hasHTML: Bool = false
+    var extractedText: String?
+    var sourceURL: String?
+    var videoTitle: String?
+}
+
 /// Monitors the system pasteboard and saves new clippings to SwiftData.
 @Observable
 @MainActor
@@ -134,42 +170,107 @@ public final class ClipboardService {
         captureFromPasteboard(pasteboard)
     }
 
+    /// COP-42: capture now runs in three phases.
+    ///   A (main): pasteboard read → Sendable `CaptureInput` snapshot.
+    ///   B (detached): image/video/RTF/HTML decode → `CaptureResult`.
+    ///   C (main): build Clipping, dedup, insert, save.
+    /// `poll()` still advances lastChangeCount and clears skipNextCapture on main before us.
     private func captureFromPasteboard(_ pasteboard: NSPasteboard) {
-        guard let modelContext else { return }
-        guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return }
+        guard let input = extractCaptureInput(from: pasteboard) else { return }
+        let captureImages = self.captureImages
+        let captureRichText = self.captureRichText
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.processCapture(
+                input,
+                captureImages: captureImages,
+                captureRichText: captureRichText
+            )
+            await self?.finalizeCapture(input: input, result: result)
+        }
+    }
 
-        // Skip if frontmost app is excluded
+    // MARK: - Phase A (main): pasteboard read into a Sendable snapshot.
+
+    private func extractCaptureInput(from pasteboard: NSPasteboard) -> CaptureInput? {
+        guard modelContext != nil else { return nil }
+        guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
+
         if let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
            excludedBundleIDs.contains(bundleID) {
-            return
+            return nil
         }
+
+        let types = (items.first?.types ?? []).map(\.rawValue)
+        let text = pasteboard.string(forType: .string).flatMap { $0.isEmpty ? nil : $0 }
+        let urlString = pasteboard.string(forType: .URL).flatMap { $0.isEmpty ? nil : $0 }
+        let tiffData = captureImages ? pasteboard.data(forType: .tiff) : nil
+        let pngData = captureImages ? pasteboard.data(forType: .png) : nil
+        let richTextData = captureRichText
+            ? (pasteboard.data(forType: .rtfd) ?? pasteboard.data(forType: .rtf))
+            : nil
+        let htmlData = pasteboard.data(forType: .html)
+        let fileURLs = candidateFileURLs(from: pasteboard)
+
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        return CaptureInput(
+            addDate: Date(),
+            types: types,
+            text: text,
+            urlString: urlString,
+            tiffData: tiffData,
+            pngData: pngData,
+            richTextData: richTextData,
+            htmlData: htmlData,
+            candidateFileURLs: fileURLs,
+            appName: frontApp?.localizedName,
+            appBundleID: frontApp?.bundleIdentifier,
+            deviceName: Host.current().localizedName ?? "Mac"
+        )
+    }
+
+    /// Collects every file URL the pasteboard exposes across the three discovery paths
+    /// (direct .fileURL, legacy NSFilenamesPboardType, modern readObjects). Stays on main
+    /// because NSPasteboard is not thread-safe. Disk reads happen later in Phase B.
+    private func candidateFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        var urls: [URL] = []
+        if let url = fileURLFromPasteboard(pasteboard) {
+            urls.append(url)
+        }
+        let filenameType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+        if let data = pasteboard.data(forType: filenameType),
+           let paths = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
+            for path in paths {
+                urls.append(URL(fileURLWithPath: path))
+            }
+        }
+        if let fromReadObjects = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] {
+            urls.append(contentsOf: fromReadObjects)
+        }
+        return urls
+    }
+
+    // MARK: - Phase C (main): build Clipping + dedup + insert.
+
+    @MainActor
+    private func finalizeCapture(input: CaptureInput, result: CaptureResult) {
+        guard let modelContext else { return }
 
         let clipping = Clipping()
-        var didCapture = false
+        clipping.addDate = input.addDate
+        clipping.types = input.types
+        clipping.text = input.text
 
-        let availableTypes = items.first?.types ?? []
-        clipping.types = availableTypes.map(\.rawValue)
-
-        // Text content
-        if let str = pasteboard.string(forType: .string), !str.isEmpty {
-            clipping.text = str
-            didCapture = true
-        }
-
-        // URL — check .URL type first, then detect URLs in text
-        if let urlStr = pasteboard.string(forType: .URL), !urlStr.isEmpty,
-           !urlStr.hasPrefix("file://") {
+        // URL handling (sanitize). Matches the pre-refactor logic exactly.
+        if let urlStr = input.urlString, !urlStr.hasPrefix("file://") {
             let cleaned = Self.sanitizeURL(urlStr)
             clipping.url = cleaned
-            // Keep text in sync when it was just the same URL, so paste-as-text
-            // doesn't revive the tracking params.
             if let text = clipping.text,
                text.trimmingCharacters(in: .whitespacesAndNewlines) == urlStr {
                 clipping.text = cleaned
             }
-            didCapture = true
         } else if clipping.url == nil, let text = clipping.text {
-            // Detect if the entire text is a URL (common when copying from address bar)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.count < 2048,
                !trimmed.contains("\n"),
@@ -179,118 +280,48 @@ public final class ClipboardService {
                url.host != nil {
                 let cleaned = Self.sanitizeURL(trimmed)
                 clipping.url = cleaned
-                // Text was purely the URL (surrounding whitespace only), so
-                // update it to the cleaned value so paste-as-text doesn't
-                // revive the tracking params.
                 clipping.text = cleaned
             }
         }
 
-        // Image — BUG-14 fix: store raw data, don't re-encode TIFF
-        if !captureImages {
-            // Skip image capture when disabled
-        } else if let tiffData = pasteboard.data(forType: .tiff) {
-            clipping.imageData = tiffData
-            clipping.hasImage = true
-            clipping.imageByteCount = tiffData.count
-            clipping.imageFormat = "tiff"
-            if let dimensions = imageDimensions(from: tiffData) {
-                clipping.imageWidth = dimensions.width
-                clipping.imageHeight = dimensions.height
-            }
-            didCapture = true
-        } else if let pngData = pasteboard.data(forType: .png) {
-            clipping.imageData = pngData
-            clipping.hasImage = true
-            clipping.imageByteCount = pngData.count
-            clipping.imageFormat = "png"
-            if let dimensions = imageDimensions(from: pngData) {
-                clipping.imageWidth = dimensions.width
-                clipping.imageHeight = dimensions.height
-            }
-            didCapture = true
-        } else if let imageData = imageDataFromFileURL(pasteboard) {
-            // File URL pointing to an image (e.g. copying a screenshot file from Finder)
-            clipping.imageData = imageData.data
-            clipping.hasImage = true
-            clipping.imageByteCount = imageData.data.count
-            clipping.imageFormat = imageData.format
-            if let dimensions = imageDimensions(from: imageData.data) {
-                clipping.imageWidth = dimensions.width
-                clipping.imageHeight = dimensions.height
-            }
-            didCapture = true
+        // Copy Phase B output
+        clipping.imageData = result.imageData
+        if let format = result.imageFormat { clipping.imageFormat = format }
+        clipping.imageByteCount = result.imageByteCount
+        clipping.imageWidth = result.imageWidth
+        clipping.imageHeight = result.imageHeight
+        clipping.hasImage = result.hasImage
+        clipping.richTextData = result.richTextData
+        clipping.hasRichText = result.hasRichText
+        clipping.htmlData = result.htmlData
+        clipping.hasHTML = result.hasHTML
+        clipping.extractedText = result.extractedText
+        clipping.sourceURL = result.sourceURL
+        if clipping.title == nil, let videoTitle = result.videoTitle {
+            clipping.title = videoTitle
         }
 
-        // Rich text (RTF/RTFD)
-        if captureRichText, let richTextData = pasteboard.data(forType: .rtfd) ?? pasteboard.data(forType: .rtf) {
-            clipping.richTextData = richTextData
-            clipping.hasRichText = true
-            didCapture = true
-        }
-
-        // HTML content
-        if let htmlData = pasteboard.data(forType: .html) {
-            clipping.htmlData = htmlData
-            clipping.hasHTML = true
-        }
-
-        // Extract plain text from rich formats for searchability. Prefer HTML
-        // (usually higher fidelity) over RTF. If we already captured .string
-        // we still run this — the extracted version often contains parts the
-        // plain .string type omitted (e.g. alt text, table cell content).
-        if clipping.extractedText == nil {
-            if clipping.hasHTML, let html = clipping.htmlData,
-               let extracted = plainTextFromHTML(html) {
-                clipping.extractedText = extracted
-            } else if clipping.hasRichText, let rtf = clipping.richTextData,
-                      let extracted = plainTextFromRTF(rtf) {
-                clipping.extractedText = extracted
-            }
-        }
-
-        // Video file URL — capture so double-click can open the original in
-        // its default app (Finder-copy of a .mov produces a placeholder image
-        // thumbnail on the pasteboard; we augment it with the file path).
-        if let fileURL = fileURLFromPasteboard(pasteboard),
-           Clipping.videoExtensions.contains(fileURL.pathExtension.lowercased()) {
-            clipping.sourceURL = fileURL.absoluteString
-            if clipping.title == nil {
-                clipping.title = fileURL.lastPathComponent
-            }
-            // If the pasteboard didn't carry a thumbnail, grab a frame from the
-            // video so the row has a recognizable preview rather than a blank
-            // file icon. Uses AVAssetImageGenerator with a 1-second seek.
-            if !clipping.hasImage, let thumb = generateVideoThumbnail(from: fileURL) {
-                clipping.imageData = thumb.data
-                clipping.imageByteCount = thumb.data.count
-                clipping.imageFormat = "png"
-                clipping.imageWidth = thumb.width
-                clipping.imageHeight = thumb.height
-                clipping.hasImage = true
-            }
-            didCapture = true
-        }
-
+        let didCapture = clipping.text != nil
+            || clipping.url != nil
+            || clipping.hasImage
+            || clipping.hasRichText
+            || clipping.sourceURL != nil
         guard didCapture else { return }
 
-        // Code detection
         if let text = clipping.text {
             let detection = CodeDetector.detect(in: text)
             clipping.isCode = detection.isCode
             clipping.detectedLanguage = detection.language
         }
 
-        // Dedup check — skip if user allows duplicates
+        // Known edge (not fixed): if two finalizeCapture runs of identical content arrive
+        // before the first has saved, both can pass dedup. Polling is 500 ms so in practice
+        // only reachable via saveCurrentClipboard bursts.
         if !allowDuplicates && isDuplicateOfLast(clipping) { return }
 
-        // Source app — store bundle ID only, NOT the icon data (icons are 2-5MB each as TIFF)
-        if let frontApp = NSWorkspace.shared.frontmostApplication {
-            clipping.appName = frontApp.localizedName
-            clipping.appBundleID = frontApp.bundleIdentifier
-        }
-
-        clipping.deviceName = Host.current().localizedName ?? "Mac"
+        clipping.appName = input.appName
+        clipping.appBundleID = input.appBundleID
+        clipping.deviceName = input.deviceName
 
         modelContext.insert(clipping)
         try? modelContext.save()
@@ -301,12 +332,91 @@ public final class ClipboardService {
         trimByAge()
     }
 
-    private struct FileImageData {
+    // MARK: - Phase B (detached): decode / extract / thumbnail.
+
+    nonisolated private static func processCapture(
+        _ input: CaptureInput,
+        captureImages: Bool,
+        captureRichText: Bool
+    ) -> CaptureResult {
+        var result = CaptureResult()
+
+        // Image data from pasteboard blobs first, then file URL disk read.
+        if captureImages {
+            if let tiff = input.tiffData {
+                result.imageData = tiff
+                result.imageFormat = "tiff"
+                result.imageByteCount = tiff.count
+                result.hasImage = true
+            } else if let png = input.pngData {
+                result.imageData = png
+                result.imageFormat = "png"
+                result.imageByteCount = png.count
+                result.hasImage = true
+            } else {
+                for url in input.candidateFileURLs {
+                    if let fid = readImageFile(at: url) {
+                        result.imageData = fid.data
+                        result.imageFormat = fid.format
+                        result.imageByteCount = fid.data.count
+                        result.hasImage = true
+                        break
+                    }
+                }
+            }
+        }
+
+        // Rich text / HTML passthrough
+        if captureRichText, let rtf = input.richTextData {
+            result.richTextData = rtf
+            result.hasRichText = true
+        }
+        if let html = input.htmlData {
+            result.htmlData = html
+            result.hasHTML = true
+        }
+
+        // Extract plain text from HTML/RTF for search indexing.
+        if result.extractedText == nil {
+            if let html = result.htmlData, let extracted = plainTextFromHTML(html) {
+                result.extractedText = extracted
+            } else if let rtf = result.richTextData, let extracted = plainTextFromRTF(rtf) {
+                result.extractedText = extracted
+            }
+        }
+
+        // Video file URL — augment with a frame thumbnail if the pasteboard didn't carry one.
+        for url in input.candidateFileURLs {
+            guard Clipping.videoExtensions.contains(url.pathExtension.lowercased()) else { continue }
+            result.sourceURL = url.absoluteString
+            result.videoTitle = url.lastPathComponent
+            if !result.hasImage, let thumb = generateVideoThumbnail(from: url) {
+                result.imageData = thumb.data
+                result.imageFormat = "png"
+                result.imageWidth = thumb.width
+                result.imageHeight = thumb.height
+                result.imageByteCount = thumb.data.count
+                result.hasImage = true
+            }
+            break
+        }
+
+        // Fill in dimensions if we have image bytes but no size yet.
+        if result.imageWidth == 0, let data = result.imageData,
+           let dims = imageDimensions(from: data) {
+            result.imageWidth = dims.width
+            result.imageHeight = dims.height
+        }
+
+        return result
+    }
+
+    private struct FileImageData: Sendable {
         let data: Data
         let format: String
     }
 
-    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
+    nonisolated private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "bmp", "webp", "heic"]
 
     /// Query parameters the standard marketing / analytics ecosystem appends to
     /// shared links. Stripped from captured URLs when `stripURLTrackingParams`
@@ -342,7 +452,7 @@ public final class ClipboardService {
     /// extraction fails (unreadable file, format not supported, etc.). Runs
     /// synchronously on the capture thread — at the 512 px cap the decode is
     /// fast enough (tens of ms) not to affect polling responsiveness.
-    private func generateVideoThumbnail(from url: URL) -> (data: Data, width: Double, height: Double)? {
+    nonisolated private static func generateVideoThumbnail(from url: URL) -> (data: Data, width: Double, height: Double)? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -362,7 +472,7 @@ public final class ClipboardService {
         return encodePNG(cgImage)
     }
 
-    private func encodePNG(_ cgImage: CGImage) -> (data: Data, width: Double, height: Double)? {
+    nonisolated private static func encodePNG(_ cgImage: CGImage) -> (data: Data, width: Double, height: Double)? {
         let mutableData = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(mutableData as CFMutableData,
                                                                   "public.png" as CFString,
@@ -374,7 +484,7 @@ public final class ClipboardService {
 
     /// Extracts plain text from HTML data for search indexing. Returns nil
     /// if parsing fails; caller should try a different format.
-    private func plainTextFromHTML(_ data: Data) -> String? {
+    nonisolated private static func plainTextFromHTML(_ data: Data) -> String? {
         let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
             .documentType: NSAttributedString.DocumentType.html,
             .characterEncoding: String.Encoding.utf8.rawValue
@@ -387,7 +497,7 @@ public final class ClipboardService {
     }
 
     /// Extracts plain text from RTF/RTFD data for search indexing.
-    private func plainTextFromRTF(_ data: Data) -> String? {
+    nonisolated private static func plainTextFromRTF(_ data: Data) -> String? {
         guard let attributed = try? NSAttributedString(data: data, documentAttributes: nil) else {
             return nil
         }
@@ -395,7 +505,7 @@ public final class ClipboardService {
         return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
     }
 
-    private func imageDimensions(from data: Data) -> (width: Double, height: Double)? {
+    nonisolated private static func imageDimensions(from data: Data) -> (width: Double, height: Double)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
@@ -404,36 +514,6 @@ public final class ClipboardService {
         }
 
         return (width.doubleValue, height.doubleValue)
-    }
-
-    /// Reads image data from a file URL on the pasteboard (e.g. copying a screenshot file from Finder).
-    /// Checks multiple pasteboard types: public.file-url, NSFilenamesPboardType, readObjects(NSURL).
-    private func imageDataFromFileURL(_ pasteboard: NSPasteboard) -> FileImageData? {
-        // Strategy 1: Read file URL string from pasteboard
-        if let url = fileURLFromPasteboard(pasteboard) {
-            if let result = readImageFile(at: url) { return result }
-        }
-
-        // Strategy 2: NSFilenamesPboardType (legacy, still used by Finder)
-        let filenameType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
-        if let data = pasteboard.data(forType: filenameType),
-           let paths = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] {
-            for path in paths {
-                let url = URL(fileURLWithPath: path)
-                if let result = readImageFile(at: url) { return result }
-            }
-        }
-
-        // Strategy 3: readObjects (modern NSPasteboardReading API)
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            .urlReadingFileURLsOnly: true
-        ]) as? [URL] {
-            for url in urls {
-                if let result = readImageFile(at: url) { return result }
-            }
-        }
-
-        return nil
     }
 
     /// Extracts a file URL from the pasteboard's string types, handling percent-encoding edge cases.
@@ -455,7 +535,7 @@ public final class ClipboardService {
     }
 
     /// Reads image data from a file URL if it points to a supported image format.
-    private func readImageFile(at url: URL) -> FileImageData? {
+    nonisolated private static func readImageFile(at url: URL) -> FileImageData? {
         let ext = url.pathExtension.lowercased()
         guard Self.imageExtensions.contains(ext) else { return nil }
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }

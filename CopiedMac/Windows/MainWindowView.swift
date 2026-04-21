@@ -287,19 +287,33 @@ private struct ListClippingsList: View {
     let searchText: String
     @Binding var selectedClipping: Clipping?
 
+    @Query private var clippings: [Clipping]
+
+    init(list: ClipList, searchText: String, selectedClipping: Binding<Clipping?>) {
+        self.list = list
+        self.searchText = searchText
+        self._selectedClipping = selectedClipping
+
+        let listID = list.listID
+        _clippings = Query(
+            filter: #Predicate<Clipping> {
+                $0.deleteDate == nil && $0.list?.listID == listID
+            },
+            sort: [SortDescriptor(\Clipping.addDate, order: .reverse)]
+        )
+    }
+
     var body: some View {
-        let all = (list.clippings ?? []).filter { $0.deleteDate == nil }
-        let items = searchText.isEmpty ? all : all.filter {
+        let filtered = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
-        let sorted = items.sorted { $0.addDate > $1.addDate }
-        List(sorted, selection: $selectedClipping) { clipping in
+        List(filtered, selection: $selectedClipping) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .overlay {
-            if sorted.isEmpty {
+            if filtered.isEmpty {
                 ContentUnavailableView("Empty List", systemImage: "folder",
                     description: Text("Drag clippings here to organize them"))
             }
