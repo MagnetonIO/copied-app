@@ -151,6 +151,7 @@ platform :mac do
       generate_apple_certs: true,
       output_path: "./.keys"
     )
+    app_cert_id = lane_context[SharedValues::CERT_CERTIFICATE_ID]
 
     UI.header("Fetching/creating Mac Installer Distribution cert")
     get_certificates(
@@ -161,41 +162,72 @@ platform :mac do
     )
 
     UI.header("Fetching/creating Mac App Store provisioning profile")
+    # For macOS, the default (no adhoc/developer_id/development flag) is Mac App Store.
+    # cert_id pins the profile to the Apple Distribution cert we just fetched —
+    # without it sigh looks for the legacy "3rd Party Mac Developer Application".
     get_provisioning_profile(
       api_key: key,
       platform: "macos",
       app_identifier: "com.mlong.copied.mac",
-      app_store: true,
       provisioning_name: "Copied Mac MAS",
-      output_path: "./.keys",
-      filename: "Copied_Mac_MAS.provisionprofile"
+      cert_id: app_cert_id,
+      output_path: "./.keys"
     )
 
     UI.success("MAS setup complete. Certs are in Keychain; profile at .keys/Copied_Mac_MAS.provisionprofile (also installed).")
   end
 
+  desc "Build sandboxed .app with Apple Development signing so it can LAUNCH locally — use this to test sandbox compatibility before the real MAS build"
+  lane :mas_debug_build do
+    repo = File.expand_path("..", __dir__)
+    sh("mkdir -p '#{repo}/build/mas-debug'")
+
+    UI.header("Archiving with MAS entitlements + Apple Development signing (local-run)")
+    archive_path = "build/mas-debug/Copied.xcarchive"
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Debug -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Automatic CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements -allowProvisioningUpdates archive | tail -20))
+
+    app_in_archive = "#{repo}/#{archive_path}/Products/Applications/Copied.app"
+    sh("rm -rf '#{repo}/build/mas-debug/Copied.app' && cp -R '#{app_in_archive}' '#{repo}/build/mas-debug/Copied.app'")
+    UI.success("Sandboxed debug build: build/mas-debug/Copied.app — launch with `open` to test under sandbox")
+  end
+
   desc "Build signed MAS .pkg ready for Transporter/upload"
   lane :mas_build do
-    build_mac_app(
-      project: "Copied.xcodeproj",
-      scheme: "CopiedMac",
-      configuration: "Release",
-      output_directory: "build/mas",
-      output_name: "Copied.app",
-      export_method: "app-store",
-      export_team_id: "7727LYTG96",
-      clean: true,
-      destination: "generic/platform=macOS",
-      xcargs: "CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_IDENTITY='3rd Party Mac Developer Application' CODE_SIGN_STYLE=Manual",
-      export_options: {
-        signingStyle: "manual",
-        teamID: "7727LYTG96",
-        provisioningProfiles: {
-          "com.mlong.copied.mac" => "Copied Mac MAS"
-        }
-      }
-    )
-    UI.success("MAS build complete: build/mas/Copied.pkg")
+    # Uses direct xcodebuild rather than gym because gym mis-detects the default scheme
+    # when the project has no on-disk .xcscheme files (XcodeGen materializes them lazily).
+    # Mirrors scripts/build-release.sh for the archive/export shape.
+    repo = File.expand_path("..", __dir__)
+    sh("mkdir -p '#{repo}/build/mas'")
+
+    UI.header("Archiving with MAS entitlements + Apple Distribution signing")
+    archive_path = "build/mas/Copied.xcarchive"
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Release -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements -allowProvisioningUpdates archive | tail -40))
+
+    UI.header("Exporting .pkg for App Store submission")
+    export_plist = "build/mas/ExportOptions-MAS.plist"
+    File.write("#{repo}/#{export_plist}", <<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+          <key>method</key><string>app-store</string>
+          <key>signingStyle</key><string>manual</string>
+          <key>signingCertificate</key><string>Apple Distribution</string>
+          <key>installerSigningCertificate</key><string>3rd Party Mac Developer Installer</string>
+          <key>provisioningProfiles</key>
+          <dict>
+              <key>com.mlong.copied.mac</key><string>Copied Mac MAS</string>
+          </dict>
+          <key>teamID</key><string>7727LYTG96</string>
+      </dict>
+      </plist>
+    PLIST
+
+    sh(%(cd '#{repo}' && xcodebuild -exportArchive -archivePath '#{archive_path}' -exportPath build/mas -exportOptionsPlist '#{export_plist}' -allowProvisioningUpdates | tail -10))
+
+    pkg_path = "build/mas/Copied.pkg"
+    UI.user_error!("MAS build failed — no .pkg at #{pkg_path}") unless File.exist?("#{repo}/#{pkg_path}")
+    UI.success("MAS build complete: #{pkg_path}")
   end
 
   desc "Upload current MAS .pkg to TestFlight"
