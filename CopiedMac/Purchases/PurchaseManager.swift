@@ -134,13 +134,26 @@ public final class PurchaseManager {
     /// Long-lived listener for post-launch purchases, Ask-to-Buy approvals, refunds,
     /// and revocations. Mutates the same UserDefaults flag; on mismatch vs. runtime
     /// CloudKit state the settings UI shows a restart prompt.
+    ///
+    /// DEBUG: when `_skipStoreKitReconcile=YES` is set in UserDefaults, we still
+    /// consume + finish transactions (to clear the local StoreKit queue of leftover
+    /// sandbox items from prior kill -9 sessions), but do NOT mutate the purchased
+    /// flag. This lets dev testing keep the "unpurchased" state visible for
+    /// exercising the buy-sheet flow end-to-end.
     private func listenForTransactions() -> Task<Void, Never> {
         Task.detached { [weak self] in
             for await result in Transaction.updates {
                 guard case .verified(let transaction) = result,
                       transaction.productID == Self.iCloudSyncProductID else { continue }
-                await MainActor.run {
-                    self?.setPremium(transaction.revocationDate == nil)
+                #if DEBUG
+                let skipFlagWrite = UserDefaults.standard.bool(forKey: "_skipStoreKitReconcile")
+                #else
+                let skipFlagWrite = false
+                #endif
+                if !skipFlagWrite {
+                    await MainActor.run {
+                        self?.setPremium(transaction.revocationDate == nil)
+                    }
                 }
                 await transaction.finish()
             }

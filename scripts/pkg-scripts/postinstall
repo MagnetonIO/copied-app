@@ -1,0 +1,26 @@
+#!/bin/bash
+# Runs after the Copied pkg finishes installing. Launches the newly installed
+# app in the logged-in user's GUI session so they don't have to find it in
+# Finder themselves.
+
+set -u
+
+console_user="$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || echo root)"
+console_uid="$(/usr/bin/id -u "$console_user" 2>/dev/null || echo 0)"
+
+# No GUI user (SSH install, MDM push, etc.) — leave the app unopened; launching
+# as root would produce a process without a menu bar UI.
+[ "$console_uid" = "0" ] && exit 0
+
+# If an older Copied is running, kill it first so `open -a` actually starts the
+# freshly installed binary instead of just focusing the stale process.
+/bin/launchctl asuser "$console_uid" /usr/bin/killall -TERM Copied >/dev/null 2>&1 || true
+/bin/sleep 1
+
+# Make sure LaunchServices resolves to the new bundle before we launch.
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister \
+  -f /Applications/Copied.app >/dev/null 2>&1 || true
+
+/bin/launchctl asuser "$console_uid" /usr/bin/open -a "/Applications/Copied.app" >/dev/null 2>&1 || true
+
+exit 0

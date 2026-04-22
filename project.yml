@@ -18,6 +18,10 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: false
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "7727LYTG96"
+    # Hardened runtime is required both for Developer ID notarization
+    # (OSS + License variants) and for Mac App Store submission.
+    # Safe to leave on everywhere.
+    ENABLE_HARDENED_RUNTIME: YES
 
 targets:
 
@@ -41,7 +45,7 @@ targets:
         NSAppleScriptEnabled: true
         CFBundleDisplayName: Copied App
         CFBundleShortVersionString: "1.2.0"
-        CFBundleVersion: "5"
+        CFBundleVersion: "7"
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: com.mlong.copied.url-scheme
@@ -55,7 +59,22 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.2.0"
-        CURRENT_PROJECT_VERSION: "5"
+        CURRENT_PROJECT_VERSION: "7"
+        # Compile flags:
+        #   MAS_BUILD       — paywall UI + PurchaseManager symbol present
+        #   MAS_STOREFRONT  — "Unlock" button talks to real StoreKit (App Store IAP).
+        #   LICENSE_STRIPE  — "Unlock" button opens Stripe Checkout; success returns
+        #                     via copied://unlock?key=<signed-jwt>, verified offline
+        #                     against a baked-in Ed25519 public key.
+        # Default = MAS_BUILD + MAS_STOREFRONT (matches Xcode Run + App Store submission).
+        # Each fastlane lane overrides via xcargs for its specific variant:
+        #   oss_build            → SWIFT_ACTIVE_COMPILATION_CONDITIONS=''
+        #   paid_license_build   → SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD LICENSE_STRIPE'
+        #   mas_build            → SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD MAS_STOREFRONT'
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
     entitlements:
       path: CopiedMac/CopiedMac.entitlements
       properties:

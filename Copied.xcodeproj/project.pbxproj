@@ -11,6 +11,8 @@
 		16498CACA732AE9498044B61 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7BAF822866372C0A8E61D86 /* CopiedKit */; };
 		1ADBD9AE0A2552057FB41CA1 /* IOSContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E7F9BDEBDC0D938D2DA15B /* IOSContentView.swift */; };
 		2424BE107C81564D9544F7D3 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 12BA8D72684F91B1163A3BF6 /* CopiedKit */; };
+		24B456A53173354F4798AF53 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F5B9606604EF52355AC247 /* SettingsWindowController.swift */; };
+		267C6A37DBD79143104EB0D0 /* AppRestarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F49BBDF97F56680FA79F5B /* AppRestarter.swift */; };
 		385697753C3F1DA87A70ADC3 /* PasteQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A402C52089CDB3C6E28A019 /* PasteQueueTests.swift */; };
 		47DAD276C2EC5039E09C03AB /* CopiedIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */; };
 		4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253D7474DF1C1851733BBD77 /* QATests.swift */; };
@@ -43,6 +45,7 @@
 
 /* Begin PBXFileReference section */
 		04B7B5A54294A32350765CDE /* CopiedIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CopiedIOS.entitlements; sourceTree = "<group>"; };
+		08F49BBDF97F56680FA79F5B /* AppRestarter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRestarter.swift; sourceTree = "<group>"; };
 		0DC10E8877F0AF5A1FEB431F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		253D7474DF1C1851733BBD77 /* QATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QATests.swift; sourceTree = "<group>"; };
@@ -55,6 +58,7 @@
 		4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedIOSApp.swift; sourceTree = "<group>"; };
 		5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
+		64F5B9606604EF52355AC247 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		6B039D4406990AB5444E169A /* PopoverClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverClippingCard.swift; sourceTree = "<group>"; };
 		8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingEditSheet.swift; sourceTree = "<group>"; };
 		96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedMacApp.swift; sourceTree = "<group>"; };
@@ -102,9 +106,11 @@
 		2D7D3266038570779ECE6C70 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				08F49BBDF97F56680FA79F5B /* AppRestarter.swift */,
 				96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */,
 				5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */,
 				D68365944B55FF8FB14382D5 /* PermissionManager.swift */,
+				64F5B9606604EF52355AC247 /* SettingsWindowController.swift */,
 				B81E8FF99A9750B5718F93BF /* StatusBarController.swift */,
 			);
 			path = App;
@@ -355,6 +361,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				267C6A37DBD79143104EB0D0 /* AppRestarter.swift in Sources */,
 				8E571072F83C8735F75B5479 /* ClippingEditSheet.swift in Sources */,
 				8A8AC5000C43193E11BE3585 /* CopiedMacApp.swift in Sources */,
 				8D03DD120B7D7E5D83463DD3 /* GlobalHotkeyManager.swift in Sources */,
@@ -364,6 +371,7 @@
 				BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */,
 				7C4AB7E0EDA52B1D93EB04C2 /* PurchaseManager.swift in Sources */,
 				E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */,
+				24B456A53173354F4798AF53 /* SettingsWindowController.swift in Sources */,
 				DD265A8A1086BACBC893AAF5 /* StatusBarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -460,6 +468,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 7727LYTG96;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -585,6 +594,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 7727LYTG96;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -613,7 +623,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -624,6 +634,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.mlong.copied.mac;
 				PRODUCT_NAME = Copied;
 				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG MAS_BUILD MAS_STOREFRONT";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Debug;
@@ -634,7 +645,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 7;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -645,6 +656,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.mlong.copied.mac;
 				PRODUCT_NAME = Copied;
 				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "MAS_BUILD MAS_STOREFRONT";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;

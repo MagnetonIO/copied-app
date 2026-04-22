@@ -54,6 +54,40 @@ public final class ThumbnailCache: @unchecked Sendable {
         cache.setObject(CachedImage(thumbnail), forKey: key, cost: cost)
         return thumbnail
     }
+
+    /// Cache-hit fast path: returns nil on miss. Safe to call from any thread.
+    /// Use this in hot scroll paths where the caller can show a placeholder
+    /// and await the full decode via `decodeThumbnail` off-main.
+    public func cachedThumbnail(for clippingID: String, maxSize: CGFloat = 120) -> NSImage? {
+        let key = "\(clippingID)-\(Int(maxSize))" as NSString
+        return cache.object(forKey: key)?.image
+    }
+
+    /// Off-main thumbnail decode. Returns nil if the image data can't be resolved
+    /// or decoded. Populates the cache on success. Never blocks the caller's thread
+    /// on the CGImageSource decode itself.
+    public func decodeThumbnail(for clippingID: String, data: Data?, maxSize: CGFloat = 120) async -> NSImage? {
+        if let cached = cachedThumbnail(for: clippingID, maxSize: maxSize) { return cached }
+        guard let data else { return nil }
+        return await Task.detached(priority: .userInitiated) { [weak self] in
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceThumbnailMaxPixelSize: maxSize * 2,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+            let thumbnail = NSImage(
+                cgImage: cgImage,
+                size: NSSize(width: CGFloat(cgImage.width) / 2, height: CGFloat(cgImage.height) / 2)
+            )
+            let key = "\(clippingID)-\(Int(maxSize))" as NSString
+            let cost = cgImage.width * cgImage.height * 4
+            self?.cache.setObject(CachedImage(thumbnail), forKey: key, cost: cost)
+            return thumbnail
+        }.value
+    }
     #endif
 
     public func evict(clippingID: String) {

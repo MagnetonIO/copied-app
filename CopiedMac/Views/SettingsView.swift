@@ -23,40 +23,120 @@ struct SettingsView: View {
     @AppStorage("pasteAndClose") private var pasteAndClose = true
     @AppStorage("stripURLTrackingParams") private var stripURLTrackingParams = true
     @AppStorage("retentionDays") private var retentionDays = -1
+    @AppStorage("trashRetentionDays") private var trashRetentionDays = 30
 
     @State private var launchAtLogin = false
     @State private var loginItemError: String?
 
     @State private var selectedTab = 0
 
+    /// One-shot: if set, the Settings window opens to this tag on next appear.
+    /// `AppRestarter.restartAfterPurchase()` writes this before relaunching so the
+    /// user lands on the Sync tab and immediately sees the unlocked state.
+    @AppStorage("settingsTabOnNextOpen") private var pendingTab: Int = -1
+
     var body: some View {
-        TabView(selection: $selectedTab) {
-            generalTab
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(0)
+        tabView
+        #if MAS_BUILD
+            .overlay {
+                if isActivatingSync {
+                    ZStack {
+                        // Note: no .ignoresSafeArea() — the tinted background stays
+                        // within content bounds so the NSWindow title bar remains
+                        // draggable even while the overlay is active.
+                        Color.black.opacity(0.35)
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text("Activating iCloud Sync…")
+                                .font(.headline)
+                            Text("Copied will restart")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(24)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .transition(.opacity.animation(.easeInOut(duration: 0.2)))
+                }
+            }
+        // No body-level `.animation(_:value:)` modifier. A body-level animation here
+        // makes SwiftUI animate the NSWindow content-size feedback loop during
+        // title-bar drag, which makes the window snap back to its original origin
+        // when the drag releases. Transition on the overlay itself is enough.
+        #endif
+    }
 
-            clipboardTab
-                .tabItem { Label("Clipboard", systemImage: "clipboard") }
-                .tag(1)
+    private var tabView: some View {
+        VStack(spacing: 0) {
+            // Custom top tab bar. Matches the native macOS prefs tabs (icon above
+            // label, centered at the top) — SwiftUI's TabView drops that styling
+            // when it's not inside a `Settings { }` scene, so we render it by hand.
+            settingsTabBar
+                .padding(.top, 6)
+                .padding(.bottom, 4)
 
-            appearanceTab
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
-                .tag(2)
+            Divider()
 
-            syncTab
-                .tabItem { Label("Sync", systemImage: "icloud") }
-                .tag(3)
-
-            aboutTab
-                .tabItem { Label("About", systemImage: "info.circle") }
-                .tag(4)
+            // Swap the tab content based on selection. Using a switch keeps only
+            // one tab's views in memory at a time (matches prior TabView behavior).
+            Group {
+                switch selectedTab {
+                case 0: generalTab
+                case 1: clipboardTab
+                case 2: appearanceTab
+                case 3: syncTab
+                default: aboutTab
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 480, height: 360)
+        .frame(width: 560, height: 500)
         .toggleStyle(.switch)
         .tint(.accentColor)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            if pendingTab >= 0 {
+                selectedTab = pendingTab
+                pendingTab = -1
+            }
         }
+    }
+
+    private var settingsTabBar: some View {
+        HStack(spacing: 2) {
+            Spacer()
+            settingsTabButton(tag: 0, label: "General", icon: "gearshape")
+            settingsTabButton(tag: 1, label: "Clipboard", icon: "clipboard")
+            settingsTabButton(tag: 2, label: "Appearance", icon: "paintbrush")
+            settingsTabButton(tag: 3, label: "Sync", icon: "icloud")
+            settingsTabButton(tag: 4, label: "About", icon: "info.circle")
+            Spacer()
+        }
+    }
+
+    private func settingsTabButton(tag: Int, label: String, icon: String) -> some View {
+        let isSelected = selectedTab == tag
+        return Button {
+            selectedTab = tag
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .regular))
+                    .frame(height: 26)
+                Text(label)
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(isSelected ? Color.white : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - General
@@ -115,6 +195,17 @@ struct SettingsView: View {
                 }
                 .onChange(of: retentionDays) { _, _ in
                     clipboardService.trimByAge()
+                }
+
+                Picker("Auto-empty trash after", selection: $trashRetentionDays) {
+                    Text("Never").tag(-1)
+                    Text("7 days").tag(7)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                    Text("1 year").tag(365)
+                }
+                .onChange(of: trashRetentionDays) { _, _ in
+                    clipboardService.purgeOldTrash()
                 }
 
                 LabeledContent("Trash") {
@@ -235,34 +326,42 @@ struct SettingsView: View {
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
     #if MAS_BUILD
     @AppStorage(PurchaseManager.purchasedKey) private var iCloudSyncPurchased = false
-    @State private var showRestartAlert = false
-    @State private var restartReason: String = ""
+    /// Shown briefly between a successful purchase/restore and the auto-restart,
+    /// so the user gets a beat of visual confirmation before the window disappears.
+    @State private var isActivatingSync = false
+    #endif
+
+    #if LICENSE_STRIPE
+    @State private var showLicenseEntrySheet = false
+    @State private var licenseError: String?
     #endif
 
     private var syncTab: some View {
         Form {
             Section {
-                Toggle("iCloud Sync", isOn: $cloudSyncEnabled)
-                    .tint(.accentColor)
-                    .onChange(of: cloudSyncEnabled) { oldValue, newValue in
-                        #if MAS_BUILD
-                        // MAS: flipping the toggle ON when unpurchased triggers the buy sheet.
-                        // On cancel, revert the toggle.
-                        if newValue && !iCloudSyncPurchased {
-                            Task {
-                                let bought = await PurchaseManager.shared.purchase()
-                                if bought {
-                                    restartReason = "iCloud Sync unlocked. Quit and reopen Copied App to start syncing."
-                                    showRestartAlert = true
-                                } else {
-                                    cloudSyncEnabled = false
-                                }
-                            }
-                            return
-                        }
-                        #endif
+                // In MAS builds the toggle is force-displayed OFF and disabled until the
+                // IAP is purchased. This avoids the confusing "toggle ON but Sync is
+                // locked" state users were seeing. The Unlock button below is the only
+                // interactive control until then.
+                #if MAS_BUILD
+                let syncToggleBinding = Binding<Bool>(
+                    get: { iCloudSyncPurchased && cloudSyncEnabled },
+                    set: { newValue in
+                        guard iCloudSyncPurchased else { return }
+                        cloudSyncEnabled = newValue
                         syncMonitor.isEnabled = newValue
                     }
+                )
+                Toggle("iCloud Sync", isOn: syncToggleBinding)
+                    .tint(.accentColor)
+                    .disabled(!iCloudSyncPurchased)
+                #else
+                Toggle("iCloud Sync", isOn: $cloudSyncEnabled)
+                    .tint(.accentColor)
+                    .onChange(of: cloudSyncEnabled) { _, newValue in
+                        syncMonitor.isEnabled = newValue
+                    }
+                #endif
 
                 #if MAS_BUILD
                 if !iCloudSyncPurchased {
@@ -297,14 +396,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        #if MAS_BUILD
-        .alert("Restart to Apply", isPresented: $showRestartAlert) {
-            Button("Quit Copied App") { NSApplication.shared.terminate(nil) }
-            Button("Later", role: .cancel) {}
-        } message: {
-            Text(restartReason)
-        }
-        #endif
     }
 
     private var activeStateRow: some View {
@@ -328,6 +419,23 @@ struct SettingsView: View {
     }
 
     #if MAS_BUILD
+    /// App Store listing URL for Copied App. `macappstore://` opens directly in the
+    /// App Store app (vs. `https://apps.apple.com/` which bounces through Safari first).
+    private static let copiedAppStoreURL = URL(string: "macappstore://apps.apple.com/app/id6762879815")!
+
+    /// Stripe Checkout entry point for the License variant.
+    /// - `LICENSE_STRIPE_LOCAL` compile flag routes to the local webhook-dev
+    ///   server on :3000 for end-to-end testing against the Stripe CLI harness.
+    /// - Without it, points at production getcopied.app (which redirects to
+    ///   the real Checkout URL on Vercel).
+    private static let stripeCheckoutURL: URL = {
+        #if LICENSE_STRIPE_LOCAL
+        return URL(string: "http://localhost:3000/buy?app=mac")!
+        #else
+        return URL(string: "https://getcopied.app/buy?app=mac")!
+        #endif
+    }()
+
     @ViewBuilder
     private var purchaseCTA: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -339,13 +447,16 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             HStack {
+                #if MAS_STOREFRONT
+                // Mac App Store build — real StoreKit IAP.
                 Button {
                     Task {
                         let bought = await PurchaseManager.shared.purchase()
                         if bought {
                             cloudSyncEnabled = true
-                            restartReason = "iCloud Sync unlocked. Quit and reopen Copied App to start syncing."
-                            showRestartAlert = true
+                            isActivatingSync = true
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            AppRestarter.restartAfterPurchase()
                         }
                     }
                 } label: {
@@ -363,21 +474,74 @@ struct SettingsView: View {
                         let restored = await PurchaseManager.shared.restore()
                         if restored {
                             cloudSyncEnabled = true
-                            restartReason = "Purchase restored. Quit and reopen Copied App to enable sync."
-                            showRestartAlert = true
+                            isActivatingSync = true
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            AppRestarter.restartAfterPurchase()
                         }
                     }
                 }
                 .buttonStyle(.bordered)
                 .disabled(PurchaseManager.shared.purchaseInFlight)
+                #elseif LICENSE_STRIPE
+                // Direct-download build with Stripe-backed licensing. Opens Checkout in
+                // the user's browser; successful payment redirects back via
+                // copied://unlock?key=<signed-jwt> which the app verifies offline
+                // against a baked-in Ed25519 public key.
+                Button {
+                    NSWorkspace.shared.open(Self.stripeCheckoutURL)
+                } label: {
+                    Label("Unlock iCloud Sync — $4.99", systemImage: "bag.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Enter License Key…") {
+                    showLicenseEntrySheet = true
+                }
+                .buttonStyle(.bordered)
+                #else
+                #error("MAS_BUILD requires either MAS_STOREFRONT or LICENSE_STRIPE. Check fastlane lane xcargs.")
+                #endif
             }
+            #if MAS_STOREFRONT
             if let error = PurchaseManager.shared.lastError {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            #elseif LICENSE_STRIPE
+            if let error = licenseError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else {
+                Text("One-time purchase. Paid via Stripe; license is stored in your Keychain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
         }
+        #if MAS_STOREFRONT
         .task { await PurchaseManager.shared.loadProduct() }
+        #endif
+        #if LICENSE_STRIPE
+        .sheet(isPresented: $showLicenseEntrySheet) {
+            LicenseEntrySheet(onSubmit: { key in
+                do {
+                    _ = try LicenseStore.storeAndVerify(license: key)
+                    licenseError = nil
+                    showLicenseEntrySheet = false
+                    cloudSyncEnabled = true
+                    isActivatingSync = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        AppRestarter.restartAfterPurchase()
+                    }
+                } catch {
+                    licenseError = "Invalid license key."
+                }
+            })
+        }
+        #endif
     }
     #endif
 
@@ -385,8 +549,12 @@ struct SettingsView: View {
 
     private var appVersion: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "\(short) (\(build))"
+        #if MAS_BUILD
+        let variant = "Paid"
+        #else
+        let variant = "OSS"
+        #endif
+        return "\(short) (\(variant))"
     }
 
     private var aboutTab: some View {
@@ -410,7 +578,10 @@ struct SettingsView: View {
                         Text("Version \(appVersion)")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                        Text("© 2026 Magneton Labs, LLC")
+                        Text("by Magneton Labs, LLC")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("© 2026 Magneton Labs, LLC. All rights reserved.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -420,24 +591,39 @@ struct SettingsView: View {
             }
 
             Section("Support") {
-                Button {
-                    openSupportEmail()
-                } label: {
+                Button { openSupportEmail() } label: {
                     LabeledContent("Email") {
-                        Text("support@getcopied.app")
-                            .foregroundStyle(.tint)
+                        Text("support@getcopied.app").foregroundStyle(.tint)
                     }
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    if let url = URL(string: "https://getcopied.app") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
+                Button { openURL("https://getcopied.app") } label: {
                     LabeledContent("Website") {
-                        Text("getcopied.app")
-                            .foregroundStyle(.tint)
+                        Text("getcopied.app").foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button { openURL("https://getcopied.app/support") } label: {
+                    LabeledContent("Help Center") {
+                        Text("getcopied.app/support").foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            Section("Legal") {
+                Button { openURL("https://getcopied.app/privacy") } label: {
+                    LabeledContent("Privacy Policy") {
+                        Text("getcopied.app/privacy").foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button { openURL("https://getcopied.app/terms") } label: {
+                    LabeledContent("Terms of Use") {
+                        Text("getcopied.app/terms").foregroundStyle(.tint)
                     }
                 }
                 .buttonStyle(.plain)
@@ -467,6 +653,11 @@ struct SettingsView: View {
         }
     }
 
+    private func openURL(_ string: String) {
+        guard let url = URL(string: string) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     private func emptyTrash() {
         let descriptor = FetchDescriptor<Clipping>(
             predicate: #Predicate { $0.deleteDate != nil }
@@ -492,3 +683,38 @@ struct SettingsView: View {
         }
     }
 }
+
+#if LICENSE_STRIPE
+/// Paste-in license key sheet for users who close the browser before the
+/// deep-link fires, or who want to move a license to a second Mac.
+private struct LicenseEntrySheet: View {
+    let onSubmit: (String) -> Void
+    @State private var key: String = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Enter License Key")
+                .font(.headline)
+            Text("Paste the license key from your purchase confirmation email.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $key)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 100)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Unlock") {
+                    onSubmit(key.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+    }
+}
+#endif

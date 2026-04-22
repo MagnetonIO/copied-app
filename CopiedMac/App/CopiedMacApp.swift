@@ -51,12 +51,10 @@ struct CopiedMacApp: App {
         .defaultPosition(.center)
         .handlesExternalEvents(matching: ["copied"])
 
-        Settings {
-            SettingsView()
-                .environment(appDelegate.clipboardService)
-                .environment(appDelegate.syncMonitor)
-                .modelContainer(SharedData.container)
-        }
+        // Settings is served by SettingsWindowController (AppKit NSWindow), not by
+        // SwiftUI's `Settings { }` scene — the scene's prefs-panel window snaps back
+        // during fast drags and its responder registers lazily, breaking first-click
+        // opens on a cold launch.
     }
 
     /// Routes `copied://` URLs into app state. Currently supports:
@@ -73,6 +71,22 @@ struct CopiedMacApp: App {
             appDelegate.appState.searchText = query
             appDelegate.appState.sidebarSelection = .all
         }
+
+        #if LICENSE_STRIPE
+        if url.host(percentEncoded: false) == "unlock" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let key = components?.queryItems?.first(where: { $0.name == "key" })?.value ?? ""
+            guard !key.isEmpty else { return }
+            do {
+                _ = try LicenseStore.storeAndVerify(license: key)
+                // Flag is now set; kick off the same restart flow the MAS purchase uses
+                // so the ModelContainer rebuilds with cloudSync enabled.
+                AppRestarter.restartAfterPurchase()
+            } catch {
+                NSLog("License unlock failed: \(error)")
+            }
+        }
+        #endif
     }
 }
 
@@ -92,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "maxHistorySize": 5000,
             "stripURLTrackingParams": true,
             "retentionDays": -1,
+            "trashRetentionDays": 30,
             "iCloudSyncPurchased": false
         ])
     }()
@@ -116,6 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardService.captureRichText = true
         }
 
+        #if LICENSE_STRIPE
+        // Reconcile Keychain → UserDefaults so the purchased flag survives reinstall.
+        // Keychain is the source of truth; UserDefaults is the hot-path mirror.
+        _ = LicenseStore.refreshFromKeychain()
+        #endif
+
         // Hide from Dock by default (menu bar only)
         let showInDock = UserDefaults.standard.bool(forKey: "showInDock")
         if !showInDock {
@@ -126,11 +147,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardService.configure(modelContext: ctx)
         clipboardService.start()
         clipboardService.trimByAge()
+        clipboardService.purgeOldTrash()
         syncMonitor.start()
 
-        #if MAS_BUILD
+        #if MAS_STOREFRONT
         // Start the Transaction.updates listener early so Ask-to-Buy approvals,
-        // refunds, and revocations that arrive after launch are caught.
+        // refunds, and revocations that arrive after launch are caught. Only in
+        // App Store-distributed builds (MAS_STOREFRONT). Direct-download variants
+        // (LICENSE_STRIPE) unlock via a signed license JWT from Stripe Checkout,
+        // not StoreKit, so no listener is needed there.
         _ = PurchaseManager.shared
         #endif
 
@@ -143,6 +168,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .environment(self.appState)
                 .environment(self.syncMonitor)
                 .modelContainer(SharedData.container)
+        }
+
+        // Set up the Settings window (AppKit NSWindow hosting the SwiftUI SettingsView).
+        // Materialized immediately so opening it on first click is instant.
+        SettingsWindowController.shared.setup {
+            AnyView(
+                SettingsView()
+                    .environment(self.clipboardService)
+                    .environment(self.syncMonitor)
+                    .modelContainer(SharedData.container)
+            )
         }
 
         // Register global hotkey (⌃⇧C)
@@ -164,6 +200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+
+        #if MAS_BUILD
+        // If we were relaunched by AppRestarter after a successful purchase, pop the
+        // Settings window so the user lands on the Sync tab (pendingTab=3 was written
+        // pre-relaunch) and sees the freshly-unlocked state without having to hunt for it.
+        if UserDefaults.standard.bool(forKey: AppRestarter.restartedFromPurchaseKey) {
+            UserDefaults.standard.removeObject(forKey: AppRestarter.restartedFromPurchaseKey)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                SettingsWindowController.shared.show()
+            }
+        }
+        #endif
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

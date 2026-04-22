@@ -128,6 +128,146 @@ platform :mac do
     dmg_path
   end
 
+  # ── Dual-variant build matrix ───────────────────────
+  # The default build (Xcode Run / Archive) already produces the PAID variant because
+  # project.yml sets SWIFT_ACTIVE_COMPILATION_CONDITIONS=MAS_BUILD at the target base.
+  # These lanes wrap the two concrete distribution paths:
+  #   • oss_build       — MAS_BUILD off, Developer ID + notarized DMG, LOCAL install only
+  #   • paid_web_build  — MAS_BUILD on,  Developer ID + notarized DMG, website / GitHub
+  # And existing `mas_build` covers the App Store submission path (MAS signing + pkg).
+
+  desc "Build OSS variant (all features unlocked, MAS_BUILD off) → build/oss/ PKG. Auto-opens Installer at the end. Local-install use only; directory is gitignored."
+  lane :oss_build do
+    build_variant_pkg(
+      variant_name: "oss",
+      output_subdir: "build/oss",
+      active_compilation_conditions: "",  # explicitly strip MAS_BUILD
+      pkg_basename: "Copied-OSS",
+      auto_open: true
+    )
+  end
+
+  desc "Build PAID-LICENSE variant: MAS_BUILD + LICENSE_STRIPE on → build/license/ PKG. Stripe-backed paywall, Developer ID + notarized + stapled. Auto-opens Installer."
+  lane :paid_license_build do
+    build_variant_pkg(
+      variant_name: "paid-license",
+      output_subdir: "build/license",
+      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE",
+      pkg_basename: "Copied-License",
+      auto_open: true
+    )
+  end
+
+  desc "Build PAID-LICENSE variant wired to localhost:3000 for end-to-end Stripe testing against the webhook-dev harness. Same Developer ID signing + notarization as paid_license_build so Gatekeeper accepts it; only difference is the compile-time Checkout URL."
+  lane :paid_license_test_build do
+    build_variant_pkg(
+      variant_name: "paid-license-test",
+      output_subdir: "build/license-test",
+      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE LICENSE_STRIPE_LOCAL",
+      pkg_basename: "Copied-License-TEST",
+      auto_open: true
+    )
+  end
+
+  # Shared implementation for .pkg outputs (OSS + paid-license). Same
+  # archive+export path as build_variant, but wraps the .app in a productbuild
+  # component pkg signed with the Developer ID Installer cert. Stapler staples
+  # the notarization ticket so the pkg installs offline without prompts.
+  def build_variant_pkg(variant_name:, output_subdir:, active_compilation_conditions:, pkg_basename:, auto_open: false)
+    repo = File.expand_path("..", __dir__)
+    sh("mkdir -p '#{repo}/#{output_subdir}'")
+
+    version = read_marketing_version
+    archive = "#{output_subdir}/Copied.xcarchive"
+    cond = active_compilation_conditions.empty? ? "" : active_compilation_conditions
+
+    sh(%(cd '#{repo}' && xcodebuild \\
+      -project Copied.xcodeproj \\
+      -scheme CopiedMac \\
+      -configuration Release \\
+      -destination 'generic/platform=macOS' \\
+      -archivePath '#{archive}' \\
+      DEVELOPMENT_TEAM=7727LYTG96 \\
+      CODE_SIGN_STYLE=Automatic \\
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS="#{cond}" \\
+      -allowProvisioningUpdates archive | tail -20))
+
+    export_plist = "#{output_subdir}/ExportOptions-DevID.plist"
+    File.write("#{repo}/#{export_plist}", developer_id_export_plist)
+    sh(%(cd '#{repo}' && xcodebuild -exportArchive \\
+      -archivePath '#{archive}' \\
+      -exportPath '#{output_subdir}' \\
+      -exportOptionsPlist '#{export_plist}' \\
+      -allowProvisioningUpdates | tail -10))
+
+    app_path = "#{output_subdir}/Copied.app"
+    notarize_if_configured(app_path)
+
+    pkg_path = "#{output_subdir}/#{pkg_basename}-v#{version}.pkg"
+    component_pkg = "#{output_subdir}/Copied-component.pkg"
+    installer_identity = "Developer ID Installer: Magneton Labs, LLC (7727LYTG96)"
+    # Two-step: pkgbuild produces a component pkg that includes the postinstall
+    # script (launches the app at end of install). productbuild wraps and signs
+    # it as a distribution pkg Installer.app knows how to render.
+    sh(%(pkgbuild \\
+      --component '#{repo}/#{app_path}' \\
+      --install-location /Applications \\
+      --identifier com.mlong.copied.mac.installer \\
+      --version #{version} \\
+      --scripts '#{repo}/scripts/pkg-scripts' \\
+      '#{repo}/#{component_pkg}'))
+    sh(%(productbuild \\
+      --package '#{repo}/#{component_pkg}' \\
+      --sign '#{installer_identity}' \\
+      '#{repo}/#{pkg_path}'))
+    notarize_if_configured(pkg_path)
+    sh("xcrun stapler staple '#{repo}/#{pkg_path}'") rescue UI.important("Stapler failed (OK if no API key configured)")
+
+    UI.success("#{variant_name} build: #{pkg_path}")
+
+    if auto_open
+      UI.message("Opening Installer for #{pkg_path}...")
+      sh("open '#{repo}/#{pkg_path}'")
+    end
+  end
+
+  # Developer ID Application export plist (direct-distribution, not App Store).
+  def developer_id_export_plist
+    <<~PLIST
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>method</key><string>developer-id</string>
+        <key>teamID</key><string>7727LYTG96</string>
+        <key>signingStyle</key><string>automatic</string>
+      </dict>
+      </plist>
+    PLIST
+  end
+
+  def read_marketing_version
+    project_yml = File.read(File.expand_path("../project.yml", __dir__))
+    m = project_yml.match(/MARKETING_VERSION:\s*"([^"]+)"/)
+    m ? m[1] : "1.0.0"
+  end
+
+  # Notarize the given .app / .dmg / .pkg if an App Store Connect API key is configured.
+  # Silent no-op when the key isn't present (so devs without credentials can still build).
+  # For .pkg inputs fastlane can't infer the bundle id automatically, so we pass it.
+  def notarize_if_configured(path, bundle_id: "com.mlong.copied.mac")
+    return unless ENV["APP_STORE_CONNECT_API_KEY_ID"]
+    key = asc_api_key
+    return unless key
+    opts = {
+      package: path,
+      api_key: key,
+      print_log: true
+    }
+    opts[:bundle_id] = bundle_id if path.end_with?(".pkg")
+    notarize(opts)
+  end
+
   # ── Mac App Store ───────────────────────────────────
   # One-time setup is automated via `mas_setup` below. Only thing you still do by hand:
   #   1. App Store Connect API key at .keys/AuthKey_*.p8, referenced from .env
@@ -138,6 +278,69 @@ platform :mac do
   #   - App Store provisioning profile bound to com.mlong.copied.mac with iCloud capability
   # CopiedMac-MAS.entitlements already present (app-sandbox + iCloud). Sandbox compatibility
   # still needs a local run to verify (CloudKit, menu bar, global hotkey).
+
+  desc "Diagnose: list all App Store Connect app records"
+  lane :list_apps do
+    require "spaceship"
+    repo = File.expand_path("..", __dir__)
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      filepath: File.expand_path(ENV["APP_STORE_CONNECT_API_KEY_PATH"], repo)
+    )
+    Spaceship::ConnectAPI.token = token
+    UI.header("App Store Connect apps")
+    Spaceship::ConnectAPI::App.all.each do |a|
+      UI.message "  #{a.bundle_id.ljust(40)} name=#{a.name.inspect} sku=#{a.sku.inspect}"
+    end
+  end
+
+  desc "Diagnose: list all Bundle IDs registered in Apple Developer Portal for this team"
+  lane :list_bundle_ids do
+    require "spaceship"
+    repo = File.expand_path("..", __dir__)
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      filepath: File.expand_path(ENV["APP_STORE_CONNECT_API_KEY_PATH"], repo)
+    )
+    Spaceship::ConnectAPI.token = token
+    UI.header("Bundle IDs in Developer Portal")
+    Spaceship::ConnectAPI::BundleId.all.each do |b|
+      UI.message "  #{b.identifier.ljust(40)} platform=#{b.platform.inspect} name=#{b.name.inspect}"
+    end
+  end
+
+  desc "Register com.mlong.copied.mac as a macOS Bundle ID in Developer Portal if missing"
+  lane :register_mac_bundle_id do
+    require "spaceship"
+    repo = File.expand_path("..", __dir__)
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      filepath: File.expand_path(ENV["APP_STORE_CONNECT_API_KEY_PATH"], repo)
+    )
+    Spaceship::ConnectAPI.token = token
+    identifier = "com.mlong.copied.mac"
+    existing = Spaceship::ConnectAPI::BundleId.find(identifier)
+    if existing
+      UI.success("Bundle ID #{identifier} already registered — platform=#{existing.platform.inspect}, seed_id=#{existing.seed_id.inspect}")
+    else
+      UI.message("Creating Bundle ID #{identifier} for macOS...")
+      created = Spaceship::ConnectAPI::BundleId.create(
+        name: "Copied App",
+        identifier: identifier,
+        platform: "MAC_OS"
+      )
+      UI.success("Created Bundle ID #{created.identifier}")
+    end
+  end
+
+  # App Store Connect app record creation is manual (fastlane's create_app_online
+  # only supports Apple-ID+2FA auth, not JWT API keys as of fastlane 2.231.1).
+  # Create at https://appstoreconnect.apple.com/apps → + → New App:
+  #   Platform: macOS, Name: Copied App, Bundle ID: com.mlong.copied.mac,
+  #   SKU: com.mlong.copied.mac, Language: English (U.S.).
 
   desc "One-time: create MAS cert + installer cert + provisioning profile via API"
   lane :mas_setup do
@@ -184,7 +387,7 @@ platform :mac do
 
     UI.header("Archiving with MAS entitlements + Apple Development signing (local-run)")
     archive_path = "build/mas-debug/Copied.xcarchive"
-    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Debug -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Automatic CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG MAS_BUILD' -allowProvisioningUpdates archive | tail -20))
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Debug -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Automatic CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG MAS_BUILD MAS_STOREFRONT' -allowProvisioningUpdates archive | tail -20))
 
     app_in_archive = "#{repo}/#{archive_path}/Products/Applications/Copied.app"
     sh("rm -rf '#{repo}/build/mas-debug/Copied.app' && cp -R '#{app_in_archive}' '#{repo}/build/mas-debug/Copied.app'")
@@ -201,7 +404,7 @@ platform :mac do
 
     UI.header("Archiving with MAS entitlements + Apple Distribution signing")
     archive_path = "build/mas/Copied.xcarchive"
-    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Release -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD' -allowProvisioningUpdates archive | tail -40))
+    sh(%(cd '#{repo}' && xcodebuild -project Copied.xcodeproj -scheme CopiedMac -configuration Release -destination 'generic/platform=macOS' -archivePath '#{archive_path}' DEVELOPMENT_TEAM=7727LYTG96 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='Copied Mac MAS' CODE_SIGN_ENTITLEMENTS=CopiedMac/CopiedMac-MAS.entitlements SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD MAS_STOREFRONT' -allowProvisioningUpdates archive | tail -40))
 
     UI.header("Exporting .pkg for App Store submission")
     export_plist = "build/mas/ExportOptions-MAS.plist"
@@ -276,6 +479,55 @@ platform :mac do
     )
   end
 
+  desc "MAS build + upload binary + upload metadata, but DO NOT submit for review. Use this to stage a build in App Store Connect for manual submit via the web UI."
+  lane :mas_upload do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    mas_build unless File.exist?("../build/mas/Copied.pkg")
+
+    upload_to_app_store(
+      api_key: key,
+      platform: "osx",
+      pkg: "build/mas/Copied.pkg",
+      skip_binary_upload: false,
+      skip_screenshots: false,
+      skip_metadata: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      automatic_release: false
+    )
+
+    UI.success("Uploaded Copied App 1.2.0 to App Store Connect (NOT submitted). Review + submit at https://appstoreconnect.apple.com/apps")
+  end
+
+  desc "Submit the already-uploaded build for Apple review. Use this after mas_upload has pushed a binary to App Store Connect and you've verified metadata/icon/categories in the web UI. Does NOT rebuild or re-upload."
+  lane :mas_submit do
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
+
+    upload_to_app_store(
+      api_key: key,
+      platform: "osx",
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+      submit_for_review: true,
+      automatic_release: false,
+      submission_information: {
+        add_id_info_uses_idfa: false,
+        export_compliance_uses_encryption: false
+      }
+    )
+
+    UI.success("Submitted Copied App for App Review")
+  end
+
   desc "Full release: MAS build + upload + metadata + submit for review"
   lane :mas_release do
     key = asc_api_key
@@ -300,6 +552,63 @@ platform :mac do
     )
 
     UI.success("Submitted Copied App to App Review")
+  end
+
+  desc "Helper for creating a sandbox tester — opens the App Store Connect page and prints suggested credentials + step-by-step instructions for using the tester in the purchase sheet. Apple's API does NOT expose sandbox tester CRUD (as of fastlane 2.231.1 / Apple API Jun 2026), so creation is manual web-UI only."
+  lane :create_sandbox_tester do |options|
+    require "securerandom"
+    require "open3"
+
+    email = options[:email] || "copied-sandbox+#{Time.now.to_i}@getcopied.app"
+    password = options[:password] || (SecureRandom.alphanumeric(10) + "Aa1!")
+    sandbox_url = "https://appstoreconnect.apple.com/access/users/sandbox"
+
+    UI.header "Sandbox Tester creation (manual web UI)"
+    UI.important "Apple's App Store Connect API doesn't expose sandbox tester CRUD."
+    UI.important "Both GET and POST /v1/sandboxTesters return 404 — this must be done in the web UI."
+    UI.message ""
+    UI.message "Opening #{sandbox_url}"
+    UI.message ""
+    UI.message "Suggested credentials (copy to your password manager NOW):"
+    UI.message ""
+    UI.message "  Email:             #{email}"
+    UI.message "  Password:          #{password}"
+    UI.message "  First Name:        Copied"
+    UI.message "  Last Name:         Tester"
+    UI.message "  App Store Country: United States"
+    UI.message "  Date of Birth:     01 / 01 / 1990"
+    UI.message "  Secret Question:   Favorite color"
+    UI.message "  Secret Answer:     blue"
+    UI.message ""
+    UI.message "Steps on the page that just opened:"
+    UI.message "  1. Click the \"+\" button top-right of the Testers table"
+    UI.message "  2. Fill the form with the values above"
+    UI.message "  3. Click \"Invite\". Apple sends a verification email if the domain"
+    UI.message "     is deliverable; sandbox testers usually sign in on the purchase"
+    UI.message "     sheet without verifying for test purchases."
+    UI.message ""
+    UI.message "Then, to run the real purchase flow in Copied (Dev):"
+    UI.message "  4. System Settings → Apple ID → Media & Purchases → Sign Out"
+    UI.message "     (sign out the App Store Apple ID only; leave iCloud signed in)"
+    UI.message "  5. Launch Copied (Dev) → ⌘, → Sync tab → \"Unlock iCloud Sync\""
+    UI.message "  6. Purchase sheet prompts for Apple ID. Enter the sandbox"
+    UI.message "     email/password above. Touch ID or password confirms."
+    UI.message "  7. Purchase completes → iCloudSyncPurchased flag flips → restart"
+    UI.message "     prompt → confirm → sync activates on next launch."
+    UI.message ""
+
+    Open3.popen3("pbcopy") { |stdin, _, _| stdin.write(email) }
+    UI.success "📋 Email copied to clipboard: #{email}"
+    UI.success "🔐 Password: #{password} (save this — clipboard will be overwritten later)"
+
+    system("open", sandbox_url)
+  end
+
+  desc "(broken — Apple API returns 404) List existing sandbox testers. Falls back to opening the web UI."
+  lane :list_sandbox_testers do
+    sandbox_url = "https://appstoreconnect.apple.com/access/users/sandbox"
+    UI.important "Apple's API doesn't expose sandbox tester listing. Opening web UI instead."
+    system("open", sandbox_url)
   end
 
   # ── Helpers ─────────────────────────────────────────

@@ -87,12 +87,20 @@ public final class ClipboardService {
     public func trimHistoryNow() {
         enforceHistoryLimit()
         trimByAge()
+        purgeOldTrash()
     }
 
     /// Retention (days) read live from UserDefaults. -1 or 0 disables it.
     public var retentionDays: Int {
         let stored = UserDefaults.standard.integer(forKey: "retentionDays")
         return stored == 0 ? -1 : stored
+    }
+
+    /// Trash retention (days) — how long a trashed clipping stays recoverable before
+    /// it's permanently deleted. Default 30 days (registered in AppDelegate). -1 disables.
+    public var trashRetentionDays: Int {
+        let stored = UserDefaults.standard.integer(forKey: "trashRetentionDays")
+        return stored == 0 ? 30 : stored
     }
 
     /// Deletes non-favorite, non-pinned clippings older than `retentionDays`.
@@ -109,6 +117,26 @@ public final class ClipboardService {
             }
         )
         guard let expired = try? modelContext.fetch(descriptor), !expired.isEmpty else { return }
+        for clipping in expired {
+            modelContext.delete(clipping)
+        }
+        try? modelContext.save()
+    }
+
+    /// Permanently deletes trashed clippings whose `deleteDate` is older than
+    /// `trashRetentionDays`. Keeps favorites out (a user can favorite something
+    /// already in trash; better not to surprise-delete it).
+    public func purgeOldTrash() {
+        guard let modelContext, trashRetentionDays > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(trashRetentionDays) * 86_400)
+        let descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate { clipping in
+                clipping.isFavorite == false && clipping.deleteDate != nil
+            }
+        )
+        guard let trashed = try? modelContext.fetch(descriptor) else { return }
+        let expired = trashed.filter { ($0.deleteDate ?? .distantFuture) < cutoff }
+        guard !expired.isEmpty else { return }
         for clipping in expired {
             modelContext.delete(clipping)
         }
@@ -330,6 +358,7 @@ public final class ClipboardService {
 
         enforceHistoryLimit()
         trimByAge()
+        purgeOldTrash()
     }
 
     // MARK: - Phase B (detached): decode / extract / thumbnail.

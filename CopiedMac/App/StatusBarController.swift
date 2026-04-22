@@ -12,9 +12,6 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     private var localClickMonitor: Any?
     weak var appState: AppState?
 
-    /// Stored from SwiftUI's @Environment(\.openSettings) — the only reliable
-    /// way to open Settings on macOS 14+. Captured by PopoverView on appear.
-    var settingsAction: OpenSettingsAction?
 
     /// Factory to create the popover content on demand (avoids idle CPU from always-live SwiftUI views)
     private var contentFactory: (() -> AnyView)?
@@ -50,6 +47,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         self.popover = pop
         self.contextMenu = menu
         self.contentFactory = { AnyView(content()) }
+
+        // Pre-warm the SwiftUI hierarchy so the first popover open doesn't pay the
+        // cost of NSHostingController alloc + @Query fetch + List first-layout.
+        let hosting = NSHostingController(rootView: AnyView(content()))
+        _ = hosting.view  // force view loading
+        popover.contentViewController = hosting
     }
 
     // MARK: - Status bar click
@@ -107,10 +110,12 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         appState?.popoverIsVisible = true
     }
 
-    /// Called by hotkey — needs delay for AppKit to lay out the status item window.
+    /// Called by hotkey — was formerly throttled by 150 ms `asyncAfter` to wait for
+    /// AppKit to lay out the status item window; dropped to next runloop since the
+    /// status button is already laid out in a running app and 150 ms is perceptible.
     private func showPopoverFromHotkey() {
         guard let button = statusItem.button else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+        DispatchQueue.main.async { [self] in
             guard !popover.isShown else { return }
             attachContentIfNeeded()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -185,26 +190,22 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
     func popoverDidClose(_ notification: Notification) {
         removeCloseMonitors()
         appState?.popoverIsVisible = false
-        // Detach SwiftUI view to stop @Query / .relative date layout cycles when hidden
-        popover.contentViewController = nil
+        // Keep contentViewController alive across opens so subsequent shows are instant.
+        // @Query stays subscribed but is cheap when data doesn't change; the SwiftUI
+        // view goes through .onDisappear / .onAppear via `popoverIsVisible` which is
+        // what we use for work gating.
     }
 
     // MARK: - Settings
 
     @objc func openSettings() {
         popover.performClose(nil)
+        statusItem.menu = nil
 
-        // Try the stored SwiftUI action first, fall back to NSApp selector
-        if let action = settingsAction {
-            action()
-        } else {
-            // Works even before the popover has been opened
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        }
-
-        DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // Deterministic first-click open — SettingsWindowController holds a real
+        // NSWindow reference and calls makeKeyAndOrderFront directly. No responder
+        // chain walk, no SwiftUI scene lazy init, works from a cold launch.
+        SettingsWindowController.shared.show()
 
         NotificationCenter.default.addObserver(
             self,

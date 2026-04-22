@@ -165,6 +165,8 @@ struct ClippingListBySelection: View {
 private struct AllClippingsList: View {
     let searchText: String
     @Binding var selectedClipping: Clipping?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(ClipboardService.self) private var clipboardService
 
     @Query(
         filter: #Predicate<Clipping> { $0.deleteDate == nil },
@@ -189,8 +191,20 @@ private struct AllClippingsList: View {
         return List(filtered, selection: $selectedClipping) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
+                .contextMenu {
+                    clippingContextMenuContent(
+                        for: clipping,
+                        clipboardService: clipboardService,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
+                }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .background {
+            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+        }
         .overlay {
             if filtered.isEmpty {
                 ContentUnavailableView(emptyTitle, systemImage: emptyIcon)
@@ -204,6 +218,8 @@ private struct AllClippingsList: View {
 private struct FavoritesClippingsList: View {
     let searchText: String
     @Binding var selectedClipping: Clipping?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(ClipboardService.self) private var clipboardService
 
     @Query(
         filter: #Predicate<Clipping> { $0.isFavorite && $0.deleteDate == nil },
@@ -220,8 +236,20 @@ private struct FavoritesClippingsList: View {
         List(filtered, selection: $selectedClipping) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
+                .contextMenu {
+                    clippingContextMenuContent(
+                        for: clipping,
+                        clipboardService: clipboardService,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
+                }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .background {
+            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+        }
         .overlay {
             if filtered.isEmpty {
                 ContentUnavailableView("No Favorites", systemImage: "star",
@@ -237,6 +265,7 @@ private struct TrashClippingsList: View {
     let searchText: String
     @Binding var selectedClipping: Clipping?
     @Environment(\.modelContext) private var modelContext
+    @Environment(ClipboardService.self) private var clipboardService
 
     @Query(
         filter: #Predicate<Clipping> { $0.deleteDate != nil },
@@ -260,8 +289,22 @@ private struct TrashClippingsList: View {
                 .controlSize(.small)
             }
             .tag(clipping)
+            .contextMenu {
+                clippingContextMenuContent(
+                    for: clipping,
+                    clipboardService: clipboardService,
+                    modelContext: modelContext,
+                    inTrash: true
+                )
+            }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .onDeleteCommand {
+            if let sel = selectedClipping { modelContext.delete(sel) }
+        }
+        .background {
+            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+        }
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
                 Button("Empty Trash", role: .destructive) {
@@ -286,6 +329,8 @@ private struct ListClippingsList: View {
     let list: ClipList
     let searchText: String
     @Binding var selectedClipping: Clipping?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(ClipboardService.self) private var clipboardService
 
     @Query private var clippings: [Clipping]
 
@@ -310,8 +355,20 @@ private struct ListClippingsList: View {
         List(filtered, selection: $selectedClipping) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
+                .contextMenu {
+                    clippingContextMenuContent(
+                        for: clipping,
+                        clipboardService: clipboardService,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
+                }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .background {
+            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+        }
         .overlay {
             if filtered.isEmpty {
                 ContentUnavailableView("Empty List", systemImage: "folder",
@@ -319,6 +376,116 @@ private struct ListClippingsList: View {
             }
         }
     }
+}
+
+// MARK: - Context menu
+
+/// Writes `clipping` to the general pasteboard. Mirrors `PopoverView.copyToClipboard(_:)`
+/// minus the popover-local bookkeeping (selectedIndex/searchResults reset, `closePopover`).
+@MainActor
+private func copyClippingToPasteboard(
+    _ clipping: Clipping,
+    clipboardService: ClipboardService
+) {
+    clipboardService.skipNextCapture = true
+    let pb = NSPasteboard.general
+    pb.clearContents()
+    if let text = clipping.text { pb.setString(text, forType: .string) }
+    if let url = clipping.url { pb.setString(url, forType: .URL) }
+    if let imageData = clipping.imageData {
+        let type: NSPasteboard.PasteboardType = clipping.imageFormat == "png" ? .png : .tiff
+        pb.setData(imageData, forType: type)
+    }
+    if let rtfData = clipping.richTextData {
+        pb.setData(rtfData, forType: clipping.richTextPasteboardType)
+    }
+    if let htmlData = clipping.htmlData {
+        pb.setData(htmlData, forType: .html)
+    }
+    clipping.markUsed()
+}
+
+/// Context-menu items shared across the four main-window list views. Keyboard shortcuts
+/// attached to the Buttons fire from the list even when the menu is closed, as long as
+/// the List holds focus (which `List(selection:)` claims on row click).
+@MainActor
+@ViewBuilder
+private func clippingContextMenuContent(
+    for clipping: Clipping,
+    clipboardService: ClipboardService,
+    modelContext: ModelContext,
+    inTrash: Bool
+) -> some View {
+    Button("Copy") {
+        copyClippingToPasteboard(clipping, clipboardService: clipboardService)
+    }
+    if let text = clipping.text, !text.isEmpty {
+        Button("Copy as Plain Text") {
+            clipboardService.skipNextCapture = true
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            clipping.markUsed()
+        }
+    }
+    if clipping.hasRichText, let rtf = clipping.richTextData {
+        Button("Copy as Rich Text") {
+            clipboardService.skipNextCapture = true
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(rtf, forType: clipping.richTextPasteboardType)
+            clipping.markUsed()
+        }
+    }
+    if clipping.hasHTML, let html = clipping.htmlData {
+        Button("Copy as HTML") {
+            clipboardService.skipNextCapture = true
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(html, forType: .html)
+            clipping.markUsed()
+        }
+    }
+    if clipping.contentKind == .link,
+       let urlStr = clipping.url,
+       let url = URL(string: urlStr) {
+        Divider()
+        Button("Open Link") { NSWorkspace.shared.open(url) }
+    }
+    Divider()
+    Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
+        clipping.isFavorite.toggle()
+    }
+    Button(clipping.isPinned ? "Unpin" : "Pin") {
+        clipping.isPinned.toggle()
+    }
+    Divider()
+    if inTrash {
+        Button("Restore") { clipping.restore() }
+        Button("Delete Permanently", role: .destructive) {
+            modelContext.delete(clipping)
+        }
+    } else {
+        Button("Move to Trash", role: .destructive) { clipping.moveToTrash() }
+        Button("Delete Permanently", role: .destructive) {
+            modelContext.delete(clipping)
+        }
+    }
+}
+
+/// Hidden focusable button that claims the ⌃⌫ shortcut for the List it's backgrounded on.
+/// `.onDeleteCommand` on the List handles plain ⌫; this covers the ⌃⌫ variant (permanent delete).
+@MainActor
+@ViewBuilder
+private func permanentDeleteShortcut(
+    selected: Clipping?,
+    modelContext: ModelContext
+) -> some View {
+    Button("") {
+        if let sel = selected { modelContext.delete(sel) }
+    }
+    .keyboardShortcut(.delete, modifiers: .control)
+    .frame(width: 0, height: 0)
+    .opacity(0)
+    .accessibilityHidden(true)
+    .disabled(selected == nil)
 }
 
 // MARK: - Color Helper

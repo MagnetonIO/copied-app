@@ -42,3 +42,9 @@ fastlane/screenshots/**/*.png
 fastlane/screenshots/**/*.jpg
 vendor/bundle/
 .bundle/
+
+# Editor / agent workspace state
+.agents/
+.claude/
+.windsurf/
+skills-lock.json

@@ -5,8 +5,18 @@ import CopiedKit
 struct PopoverClippingCard: View {
     let clipping: Clipping
     let index: Int
-    let isHovered: Bool
     let isSelected: Bool
+    let isKeyboardNavigating: Bool
+    /// Called once, only on genuine cursor movement into the row. Parent uses this
+    /// to clear its `isKeyboardNavigating` flag so mouse reclaims control.
+    var onMouseMoved: (() -> Void)? = nil
+
+    /// Hover is row-local: writes stay inside this view and don't re-render the parent
+    /// popover or other rows. Previously the parent held `hoveredID` and every `.onHover`
+    /// fired a state write there, cascading into a full popover body rebuild each time
+    /// the mouse moved during scroll.
+    @State private var isHovered: Bool = false
+    @State private var lastMouseLocation: CGPoint = .zero
 
     var body: some View {
         HStack(spacing: 10) {
@@ -49,6 +59,27 @@ struct PopoverClippingCard: View {
                 .fill((isHovered || isSelected) ? .white.opacity(0.08) : .clear)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onHover { hovering in
+            if hovering {
+                // Only flip hover state when the mouse actually moves. Without the
+                // mouseMoved gate, SwiftUI fires .onHover on every render, and during
+                // scroll the render rate compounds with cursor-under-row to thrash
+                // the flag constantly.
+                let m = NSEvent.mouseLocation
+                let moved = abs(m.x - lastMouseLocation.x) > 2 ||
+                            abs(m.y - lastMouseLocation.y) > 2
+                lastMouseLocation = m
+                if moved {
+                    onMouseMoved?()
+                    if !isKeyboardNavigating { isHovered = true }
+                }
+            } else {
+                isHovered = false
+            }
+        }
+        .onChange(of: isKeyboardNavigating) { _, kb in
+            if kb { isHovered = false }
+        }
     }
 
     // MARK: - Content Type Icon
@@ -162,13 +193,14 @@ struct PopoverClippingCard: View {
         HStack(spacing: 10) {
             if clipping.hasImage {
                 #if canImport(AppKit)
-                let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 96)
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 96, height: 60)
-                    .background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                AsyncThumbnailImage(
+                    clippingID: clipping.clippingID,
+                    dataProvider: { [clipping] in clipping.imageData },
+                    maxSize: 96
+                )
+                .frame(width: 96, height: 60)
+                .background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
                 #endif
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -190,13 +222,14 @@ struct PopoverClippingCard: View {
             ZStack {
                 #if canImport(AppKit)
                 if clipping.hasImage {
-                    let thumbnail = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 96)
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 96, height: 60)
-                        .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    AsyncThumbnailImage(
+                        clippingID: clipping.clippingID,
+                        dataProvider: { [clipping] in clipping.imageData },
+                        maxSize: 96
+                    )
+                    .frame(width: 96, height: 60)
+                    .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 } else {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(.black.opacity(0.5))
@@ -268,3 +301,45 @@ struct PopoverClippingCard: View {
         .transition(.opacity.combined(with: .scale(scale: 0.8)))
     }
 }
+
+#if canImport(AppKit)
+/// Image view that resolves its thumbnail off the main thread AND defers the
+/// `@Attribute(.externalStorage)` blob fault until after initial layout.
+///
+/// - Cache hit at init: `@State image` is seeded synchronously from `ThumbnailCache`
+///   so no placeholder flash on scroll-back / row recycling.
+/// - Cache miss: `dataProvider()` is called inside `.task` (not during body), which
+///   defers the sync disk read for `clipping.imageData` to after the first layout.
+///   The decode itself runs on a background Task, so scroll never blocks.
+struct AsyncThumbnailImage: View {
+    let clippingID: String
+    let dataProvider: () -> Data?
+    let maxSize: CGFloat
+
+    @State private var image: NSImage?
+
+    init(clippingID: String, dataProvider: @escaping () -> Data?, maxSize: CGFloat) {
+        self.clippingID = clippingID
+        self.dataProvider = dataProvider
+        self.maxSize = maxSize
+        _image = State(initialValue: ThumbnailCache.shared.cachedThumbnail(for: clippingID, maxSize: maxSize))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: clippingID) {
+            if image != nil { return }
+            let resolvedData = dataProvider()
+            image = await ThumbnailCache.shared.decodeThumbnail(for: clippingID, data: resolvedData, maxSize: maxSize)
+        }
+    }
+}
+#endif

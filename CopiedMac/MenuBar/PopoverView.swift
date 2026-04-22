@@ -4,7 +4,6 @@ import CopiedKit
 
 struct PopoverView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openSettings) private var openSettingsAction
     @Environment(ClipboardService.self) private var clipboardService
     @Environment(AppState.self) private var appState
     @Environment(SyncMonitor.self) private var syncMonitor
@@ -18,6 +17,11 @@ struct PopoverView: View {
 
     @AppStorage("pasteAndClose") private var pasteAndClose = true
 
+    #if MAS_BUILD
+    @AppStorage("iCloudSyncPurchased") private var iCloudSyncPurchased = false
+    #endif
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+
     /// How many of the most recent clippings are currently materialized in the
     /// popover. Starts at 100 and grows by 100 as the user scrolls near the
     /// bottom, capped at `maxVisibleCount` so memory stays bounded.
@@ -26,10 +30,8 @@ struct PopoverView: View {
     private let maxVisibleCount: Int = 500
 
     @State private var searchText = ""
-    @State private var hoveredID: String?
     @State private var selectedIndex: Int = 0
     @State private var isKeyboardNavigating: Bool = false
-    @State private var lastMouseLocation: CGPoint = .zero
     @State private var editingClipID: String?
     @State private var editText: String = ""
     @State private var previewClipID: String?
@@ -47,39 +49,30 @@ struct PopoverView: View {
         visibleCount < allClippings.count
     }
 
-    /// Cached search results — only recomputed when searchText or filterKind changes, NOT on hover
+    /// Filter/sort result stored as @State instead of being recomputed on every body render.
+    /// The previous computed-property design called an async `Task { @MainActor in ... }` to
+    /// update its cache, which meant multiple body re-renders within a single frame all missed
+    /// the cache and recomputed the full filter/sort — visible as progressive slowdown on
+    /// repeated scrolls. Now `recomputeFiltered()` runs only when inputs actually change.
+    @State private var filtered: [Clipping] = []
     @State private var matchRanges: [String: [Range<String.Index>]] = [:]
-    @State private var searchResults: [Clipping]?
-    @State private var lastSearchText: String = ""
-    @State private var lastFilterKind: ContentKind?
-    @State private var lastClippingCount: Int = 0
 
-    private var filtered: [Clipping] {
-        // Return cached results if search/filter/data haven't changed (avoids recompute on hover)
-        if let cached = searchResults,
-           lastSearchText == searchText,
-           lastFilterKind == appState.filterKind,
-           lastClippingCount == allClippings.count {
-            return cached
-        }
-
-        // Search and filters should cover the full history. The popover item
-        // count only limits the default recent list.
+    private func recomputeFiltered() {
         let source = (searchText.isEmpty && appState.filterKind == nil)
             ? Array(clippings)
             : Array(allClippings)
 
-        // Sort by addDate descending — @Query may not re-sort on property updates
         var result = source.sorted { $0.addDate > $1.addDate }
 
         if let kind = appState.filterKind {
             result = result.filter { $0.contentKind == kind }
         }
 
+        var newRanges: [String: [Range<String.Index>]] = [:]
+
         if !searchText.isEmpty {
             if searchText.count > 2 {
                 var scored: [(Clipping, Int, [Range<String.Index>])] = []
-                var newRanges: [String: [Range<String.Index>]] = [:]
 
                 for clip in result {
                     var bestScore = Int.min
@@ -118,14 +111,6 @@ struct PopoverView: View {
 
                 scored.sort { $0.1 > $1.1 }
                 result = scored.map(\.0)
-                Task { @MainActor in
-                    matchRanges = newRanges
-                    searchResults = result
-                    lastSearchText = searchText
-                    lastFilterKind = appState.filterKind
-                    lastClippingCount = allClippings.count
-                }
-                return result
             } else {
                 result = result.filter { clip in
                     clip.text?.localizedCaseInsensitiveContains(searchText) == true ||
@@ -134,24 +119,18 @@ struct PopoverView: View {
                     clip.appName?.localizedCaseInsensitiveContains(searchText) == true ||
                     clip.extractedText?.localizedCaseInsensitiveContains(searchText) == true
                 }
-                Task { @MainActor in matchRanges = [:] }
             }
-        } else {
-            Task { @MainActor in matchRanges = [:] }
         }
 
-        // Sort pinned items to top
-        let pinned = result.filter { $0.isPinned }
-        let unpinned = result.filter { !$0.isPinned }
-        result = pinned + unpinned
-
-        Task { @MainActor in
-            searchResults = result
-            lastSearchText = searchText
-            lastFilterKind = appState.filterKind
-            lastClippingCount = allClippings.count
+        // Pinned to top — only applied to the default recent list, not searches.
+        if searchText.isEmpty {
+            let pinned = result.filter { $0.isPinned }
+            let unpinned = result.filter { !$0.isPinned }
+            result = pinned + unpinned
         }
-        return result
+
+        filtered = result
+        matchRanges = newRanges
     }
 
     var body: some View {
@@ -184,7 +163,6 @@ struct PopoverView: View {
             isKeyboardNavigating = true
             selectedIndex = min(selectedIndex + 1, filtered.count - 1)
             if filtered.indices.contains(selectedIndex) {
-                hoveredID = nil
                 withAnimation(.easeOut(duration: 0.15)) {
                     scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
                 }
@@ -196,7 +174,6 @@ struct PopoverView: View {
             isKeyboardNavigating = true
             selectedIndex = max(selectedIndex - 1, 0)
             if filtered.indices.contains(selectedIndex) {
-                hoveredID = nil
                 withAnimation(.easeOut(duration: 0.15)) {
                     scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
                 }
@@ -215,24 +192,33 @@ struct PopoverView: View {
             return .handled
         }
         .onAppear {
-            StatusBarController.shared.settingsAction = openSettingsAction
+            recomputeFiltered()
         }
         .onChange(of: appState.popoverIsVisible) { _, visible in
             guard visible else { return }
             searchFocused = true
             selectedIndex = 0
-            hoveredID = nil
-            searchResults = nil
-            if let first = filtered.first {
+            visibleCount = pageSize
+            recomputeFiltered()
+            // Defer so SwiftUI has rendered the re-computed `filtered` list
+            // before scrolling. Scrolling synchronously scrolls the stale
+            // list and lands at the wrong row (or no-ops).
+            DispatchQueue.main.async {
+                guard let first = filtered.first else { return }
                 scrollProxy?.scrollTo(first.clippingID, anchor: .top)
             }
         }
         .onChange(of: appState.filterKind) { _, _ in
-            // Invalidate search cache when filter changes
-            searchResults = nil
+            recomputeFiltered()
         }
         .onChange(of: searchText) { _, _ in
-            searchResults = nil
+            recomputeFiltered()
+        }
+        .onChange(of: allClippings.count) { _, _ in
+            recomputeFiltered()
+        }
+        .onChange(of: visibleCount) { _, _ in
+            recomputeFiltered()
         }
     }
 
@@ -253,7 +239,6 @@ struct PopoverView: View {
                     isKeyboardNavigating = true
                     selectedIndex = min(selectedIndex + 1, filtered.count - 1)
                     if filtered.indices.contains(selectedIndex) {
-                        hoveredID = nil
                         withAnimation(.easeOut(duration: 0.15)) {
                             scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
                         }
@@ -265,7 +250,6 @@ struct PopoverView: View {
                     isKeyboardNavigating = true
                     selectedIndex = max(selectedIndex - 1, 0)
                     if filtered.indices.contains(selectedIndex) {
-                        hoveredID = nil
                         withAnimation(.easeOut(duration: 0.15)) {
                             scrollProxy?.scrollTo(filtered[selectedIndex].clippingID, anchor: nil)
                         }
@@ -334,150 +318,133 @@ struct PopoverView: View {
     @State private var scrollProxy: ScrollViewProxy?
 
     private var clippingList: some View {
+        // NSTableView-backed SwiftUI List — gives us the same native scroll physics
+        // as the main window's lists. LazyVStack+ScrollView didn't match the native feel
+        // (momentum, rubber-band, row recycling) even after per-render work was cleaned up.
+        // Transparent row styling preserves the custom PopoverClippingCard look.
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                if filtered.isEmpty {
-                    VStack(spacing: 12) {
-                        Spacer()
-                        Image(systemName: "clipboard")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.tertiary)
-                        Text(searchText.isEmpty && appState.filterKind == nil
-                             ? "Copy something to get started"
-                             : "No matches")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 300)
-                } else {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(filtered.enumerated()), id: \.element.clippingID) { index, clipping in
-
-                        if editingClipID == clipping.clippingID {
-                            inlineEditor(for: clipping)
-                        } else {
-                            PopoverClippingCard(
-                                clipping: clipping,
-                                index: index,
-                                isHovered: hoveredID == clipping.clippingID,
-                                isSelected: selectedIndex == index,
-                                searchMatchRanges: matchRanges[clipping.clippingID]
-                            )
-                            .id(clipping.clippingID)
-                            .onAppear {
-                                // Grow the recent-list window as the user approaches the end.
-                                // Guarded so search/filter views don't trigger paging.
-                                if canLoadMore, index >= filtered.count - 10 {
-                                    visibleCount = min(visibleCount + pageSize, maxVisibleCount)
+            if filtered.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "clipboard")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.tertiary)
+                    Text(searchText.isEmpty && appState.filterKind == nil
+                         ? "Copy something to get started"
+                         : "No matches")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, minHeight: 300)
+            } else {
+                List {
+                    ForEach(Array(filtered.enumerated()), id: \.element.clippingID) { index, clipping in
+                        Group {
+                            if editingClipID == clipping.clippingID {
+                                inlineEditor(for: clipping)
+                            } else {
+                                PopoverClippingCard(
+                                    clipping: clipping,
+                                    index: index,
+                                    isSelected: selectedIndex == index,
+                                    isKeyboardNavigating: isKeyboardNavigating,
+                                    onMouseMoved: {
+                                        if isKeyboardNavigating { isKeyboardNavigating = false }
+                                    },
+                                    searchMatchRanges: matchRanges[clipping.clippingID]
+                                )
+                                .onAppear {
+                                    if canLoadMore, index >= filtered.count - 10 {
+                                        visibleCount = min(visibleCount + pageSize, maxVisibleCount)
+                                    }
                                 }
-                            }
-                            .onHover { isHovered in
-                                // Hover purely visual — no selectedIndex writes during scroll.
-                                // Selection is driven by keyboard nav and tap.
-                                if isHovered {
-                                    let currentMouse = NSEvent.mouseLocation
-                                    let mouseMoved = abs(currentMouse.x - lastMouseLocation.x) > 2 ||
-                                                     abs(currentMouse.y - lastMouseLocation.y) > 2
-                                    lastMouseLocation = currentMouse
-
-                                    if mouseMoved {
-                                        isKeyboardNavigating = false
-                                        if hoveredID != clipping.clippingID {
-                                            hoveredID = clipping.clippingID
+                                .onTapGesture(count: 2) { handleDoubleClick(clipping) }
+                                .onTapGesture { selectClipping(at: index) }
+                                .contextMenu {
+                                    Button("Copy") { copyToClipboard(clipping) }
+                                    if let text = clipping.text, !text.isEmpty {
+                                        Button("Copy as Plain Text") {
+                                            clipboardService.skipNextCapture = true
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(text, forType: .string)
+                                            clipping.markUsed()
+                                            try? modelContext.save()
                                         }
                                     }
-                                } else if hoveredID == clipping.clippingID {
-                                    hoveredID = nil
-                                }
-                            }
-                            .onTapGesture(count: 2) {
-                                handleDoubleClick(clipping)
-                            }
-                            .onTapGesture {
-                                selectClipping(at: index)
-                            }
-                            .contextMenu {
-                                Button("Copy") { copyToClipboard(clipping) }
-                                if let text = clipping.text, !text.isEmpty {
-                                    Button("Copy as Plain Text") {
-                                        clipboardService.skipNextCapture = true
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(text, forType: .string)
-                                        clipping.markUsed()
-                                        try? modelContext.save()
-                                        searchResults = nil
+                                    if clipping.hasRichText {
+                                        Button("Copy as Rich Text") { copyAsRichText(clipping) }
                                     }
-                                }
-                                if clipping.hasRichText {
-                                    Button("Copy as Rich Text") { copyAsRichText(clipping) }
-                                }
-                                if clipping.hasHTML {
-                                    Button("Copy as HTML") { copyAsHTML(clipping) }
-                                }
-                                if clipping.text != nil {
-                                    Menu("Copy As…") {
-                                        ForEach(TextTransform.allCases) { transform in
-                                            Button(transform.label) {
-                                                copyTransformed(clipping, transform: transform)
+                                    if clipping.hasHTML {
+                                        Button("Copy as HTML") { copyAsHTML(clipping) }
+                                    }
+                                    if clipping.text != nil {
+                                        Menu("Copy As…") {
+                                            ForEach(TextTransform.allCases) { transform in
+                                                Button(transform.label) {
+                                                    copyTransformed(clipping, transform: transform)
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                if clipping.contentKind == .link, let urlStr = clipping.url, let url = URL(string: urlStr) {
-                                    Button("Open Link") {
-                                        NSWorkspace.shared.open(url)
-                                        StatusBarController.shared.closePopover()
+                                    if clipping.contentKind == .link, let urlStr = clipping.url, let url = URL(string: urlStr) {
+                                        Button("Open Link") {
+                                            NSWorkspace.shared.open(url)
+                                            StatusBarController.shared.closePopover()
+                                        }
                                     }
-                                }
-                                if clipping.contentKind == .code, let text = clipping.text {
-                                    Button("Open in Editor") {
-                                        openInEditor(text: text, language: clipping.detectedLanguage)
-                                        StatusBarController.shared.closePopover()
+                                    if clipping.contentKind == .code, let text = clipping.text {
+                                        Button("Open in Editor") {
+                                            openInEditor(text: text, language: clipping.detectedLanguage)
+                                            StatusBarController.shared.closePopover()
+                                        }
                                     }
-                                }
-                                if clipping.contentKind == .image, clipping.hasImage {
-                                    Button("Open in Default Viewer") {
-                                        openImageInDefaultViewer(clipping)
-                                        StatusBarController.shared.closePopover()
+                                    if clipping.contentKind == .image, clipping.hasImage {
+                                        Button("Open in Default Viewer") {
+                                            openImageInDefaultViewer(clipping)
+                                            StatusBarController.shared.closePopover()
+                                        }
                                     }
-                                }
-                                if let videoURL = videoFileURL(for: clipping) {
-                                    Button("Open Video") {
-                                        NSWorkspace.shared.open(videoURL)
-                                        StatusBarController.shared.closePopover()
+                                    if let videoURL = videoFileURL(for: clipping) {
+                                        Button("Open Video") {
+                                            NSWorkspace.shared.open(videoURL)
+                                            StatusBarController.shared.closePopover()
+                                        }
                                     }
-                                }
-                                Divider()
-                                Button(clipping.contentKind == .image ? "Rename…" : "Edit…") {
-                                    if clipping.contentKind == .image {
-                                        editText = clipping.title ?? "Image"
-                                    } else {
-                                        editText = clipping.text ?? clipping.url ?? ""
+                                    Divider()
+                                    Button(clipping.contentKind == .image ? "Rename…" : "Edit…") {
+                                        if clipping.contentKind == .image {
+                                            editText = clipping.title ?? "Image"
+                                        } else {
+                                            editText = clipping.text ?? clipping.url ?? ""
+                                        }
+                                        editingClipID = clipping.clippingID
                                     }
-                                    editingClipID = clipping.clippingID
-                                }
-                                Divider()
-                                Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
-                                    clipping.isFavorite.toggle()
-                                }
-                                Button(clipping.isPinned ? "Unpin" : "Pin") {
-                                    clipping.isPinned.toggle()
-                                }
-                                Divider()
-                                Button("Delete", role: .destructive) {
-                                    clipping.moveToTrash()
+                                    Divider()
+                                    Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
+                                        clipping.isFavorite.toggle()
+                                    }
+                                    Button(clipping.isPinned ? "Unpin" : "Pin") {
+                                        clipping.isPinned.toggle()
+                                    }
+                                    Divider()
+                                    Button("Delete", role: .destructive) {
+                                        clipping.moveToTrash()
+                                    }
                                 }
                             }
                         }
+                        .id(clipping.clippingID)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.top, 4)
-                .padding(.bottom, 14)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 1)
+                .onAppear { scrollProxy = proxy }
             }
-        }
-        .onAppear { scrollProxy = proxy }
         }
     }
 
@@ -753,8 +720,27 @@ struct PopoverView: View {
     }
 
     private var isSyncing: Bool {
+        guard popoverSyncState == .live else { return false }
         if case .syncing = syncMonitor.status { return true }
         return false
+    }
+
+    /// The user-facing sync state shown in the popover footer. Separate from
+    /// `syncMonitor.status` because the monitor only reports CloudKit
+    /// connectivity — we also have to reflect the purchase/unlock flag
+    /// (MAS_BUILD) and whether the user toggled sync off in Settings.
+    private enum PopoverSyncState {
+        case locked      // paywall not unlocked
+        case disabled    // unlocked but user toggled off
+        case live        // unlocked + enabled → mirror syncMonitor.status
+    }
+
+    private var popoverSyncState: PopoverSyncState {
+        #if MAS_BUILD
+        if !iCloudSyncPurchased { return .locked }
+        #endif
+        if !cloudSyncEnabled { return .disabled }
+        return .live
     }
 
     private var syncStatusView: some View {
@@ -763,7 +749,7 @@ struct PopoverView: View {
                 .font(.caption2)
                 .foregroundStyle(syncColor)
                 .symbolEffect(.rotate, isActive: isSyncing)
-            Text(syncMonitor.status.label)
+            Text(syncLabel)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -772,24 +758,41 @@ struct PopoverView: View {
         .layoutPriority(1)
     }
 
+    private var syncLabel: String {
+        switch popoverSyncState {
+        case .locked: return "Sync Locked"
+        case .disabled: return "Sync Off"
+        case .live: return syncMonitor.status.label
+        }
+    }
+
     private var syncIcon: String {
-        switch syncMonitor.status {
-        case .synced: "icloud.fill"
-        case .available: "icloud"
-        case .syncing: "arrow.triangle.2.circlepath.icloud"
-        case .noAccount: "icloud.slash"
-        case .error: "exclamationmark.icloud"
-        case .notStarted: "icloud"
+        switch popoverSyncState {
+        case .locked: return "lock.icloud"
+        case .disabled: return "icloud.slash"
+        case .live:
+            switch syncMonitor.status {
+            case .synced: return "icloud.fill"
+            case .available: return "icloud"
+            case .syncing: return "arrow.triangle.2.circlepath.icloud"
+            case .noAccount: return "icloud.slash"
+            case .error: return "exclamationmark.icloud"
+            case .notStarted: return "icloud"
+            }
         }
     }
 
     private var syncColor: Color {
-        switch syncMonitor.status {
-        case .synced: .green
-        case .available: .secondary
-        case .syncing: .blue
-        case .noAccount, .error: .red
-        case .notStarted: .secondary
+        switch popoverSyncState {
+        case .locked, .disabled: return .secondary
+        case .live:
+            switch syncMonitor.status {
+            case .synced: return .green
+            case .available: return .secondary
+            case .syncing: return .blue
+            case .noAccount, .error: return .red
+            case .notStarted: return .secondary
+            }
         }
     }
 
@@ -797,7 +800,6 @@ struct PopoverView: View {
 
     private func selectClipping(at index: Int) {
         selectedIndex = index
-        hoveredID = filtered.indices.contains(index) ? filtered[index].clippingID : nil
     }
 
     private func handleDoubleClick(_ clipping: Clipping) {
@@ -839,7 +841,6 @@ struct PopoverView: View {
         NSPasteboard.general.setString(transform.apply(text), forType: .string)
         clipping.markUsed()
         try? modelContext.save()
-        searchResults = nil
     }
 
     private func copyAsRichText(_ clipping: Clipping) {
@@ -853,7 +854,6 @@ struct PopoverView: View {
         }
         clipping.markUsed()
         try? modelContext.save()
-        searchResults = nil
     }
 
     private func copyAsHTML(_ clipping: Clipping) {
@@ -867,7 +867,6 @@ struct PopoverView: View {
         }
         clipping.markUsed()
         try? modelContext.save()
-        searchResults = nil
     }
 
     private func copyAndPaste(_ clipping: Clipping) {
@@ -905,6 +904,5 @@ struct PopoverView: View {
         try? modelContext.save()
         selectedIndex = 0
         // Invalidate cache so the re-sorted order is visible immediately
-        searchResults = nil
     }
 }
