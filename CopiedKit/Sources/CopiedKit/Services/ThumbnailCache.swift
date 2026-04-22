@@ -12,8 +12,13 @@ public final class ThumbnailCache: @unchecked Sendable {
     private let cache = NSCache<NSString, CachedImage>()
 
     private init() {
-        cache.countLimit = 500
-        cache.totalCostLimit = 50 * 1024 * 1024 // 50 MB max
+        // Sized for full scroll cycles of long clipboard histories: 2000 entries
+        // at up to 150 MB. With two size variants (32, 120) that's ~1000 thumbnails,
+        // covering ~1000 image clippings without eviction on scroll-back. Previous
+        // 500 / 50 MB evicted mid-scroll and forced re-decodes on scroll-up,
+        // producing the reported stutter.
+        cache.countLimit = 2000
+        cache.totalCostLimit = 150 * 1024 * 1024
     }
 
     #if canImport(AppKit)

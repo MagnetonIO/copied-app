@@ -55,8 +55,13 @@ struct PopoverClippingCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(
+            // Show at most one highlight at a time.
+            // Keyboard mode: highlight follows `isSelected` (arrow-key cursor).
+            // Mouse mode:    highlight follows `isHovered` only — the stale
+            //                 selectedIndex is not shown, so the user never sees
+            //                 two rows highlighted.
             RoundedRectangle(cornerRadius: 8)
-                .fill((isHovered || isSelected) ? .white.opacity(0.08) : .clear)
+                .fill(showsHighlight ? .white.opacity(0.08) : .clear)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .onHover { hovering in
@@ -123,6 +128,15 @@ struct PopoverClippingCard: View {
 
     private var showsQuickActions: Bool {
         isHovered || isSelected
+    }
+
+    /// Single-highlight rule for the row background.
+    /// - Keyboard mode (arrow keys): highlight follows the selection cursor.
+    /// - Mouse mode: highlight follows the mouse; the stale keyboard selection
+    ///   is not drawn, so the user never sees two rows highlighted.
+    /// Matches the Spotlight/Raycast behaviour for menu-bar pickers.
+    private var showsHighlight: Bool {
+        isKeyboardNavigating ? isSelected : isHovered
     }
 
     @ViewBuilder

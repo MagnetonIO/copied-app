@@ -147,14 +147,14 @@ platform :mac do
     )
   end
 
-  desc "Build PAID-LICENSE variant: MAS_BUILD + LICENSE_STRIPE on → build/license/ PKG. Stripe-backed paywall, Developer ID + notarized + stapled. Auto-opens Installer."
-  lane :paid_license_build do
+  desc "Build PAID-LICENSE variant: MAS_BUILD + LICENSE_STRIPE on → build/license/ PKG. Stripe-backed paywall, Developer ID + notarized + stapled. Pass open:true to auto-open Installer (for local testing)."
+  lane :paid_license_build do |options|
     build_variant_pkg(
       variant_name: "paid-license",
       output_subdir: "build/license",
       active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE",
       pkg_basename: "Copied-License",
-      auto_open: true
+      auto_open: options[:open].to_s == "true"
     )
   end
 
@@ -395,7 +395,7 @@ platform :mac do
   end
 
   desc "Build signed MAS .pkg ready for Transporter/upload"
-  lane :mas_build do
+  lane :mas_build do |options|
     # Uses direct xcodebuild rather than gym because gym mis-detects the default scheme
     # when the project has no on-disk .xcscheme files (XcodeGen materializes them lazily).
     # Mirrors scripts/build-release.sh for the archive/export shape.
@@ -431,6 +431,13 @@ platform :mac do
     pkg_path = "build/mas/Copied.pkg"
     UI.user_error!("MAS build failed — no .pkg at #{pkg_path}") unless File.exist?("#{repo}/#{pkg_path}")
     UI.success("MAS build complete: #{pkg_path}")
+
+    # Optional auto-open for local testing — MAS pkgs install to a sandboxed
+    # app via Installer.app, same as any other distribution pkg.
+    if options[:open].to_s == "true"
+      UI.message("Opening Installer for #{pkg_path}...")
+      sh("open '#{repo}/#{pkg_path}'")
+    end
   end
 
   desc "Upload current MAS .pkg to TestFlight"

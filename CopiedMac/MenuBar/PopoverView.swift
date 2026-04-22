@@ -37,16 +37,11 @@ struct PopoverView: View {
     @State private var previewClipID: String?
     @FocusState private var searchFocused: Bool
 
-    private var clippings: ArraySlice<Clipping> {
-        allClippings.prefix(min(visibleCount, maxVisibleCount))
-    }
-
-    /// Whether more recent-list rows can be loaded without hitting the cap.
+    /// Whether more rows can be materialized without hitting the cap. Paging
+    /// works in all modes (recent list, search, filter) because the ForEach
+    /// caps at `visibleCount` regardless of source.
     private var canLoadMore: Bool {
-        searchText.isEmpty &&
-        appState.filterKind == nil &&
-        visibleCount < maxVisibleCount &&
-        visibleCount < allClippings.count
+        visibleCount < maxVisibleCount && visibleCount < filtered.count
     }
 
     /// Filter/sort result stored as @State instead of being recomputed on every body render.
@@ -58,9 +53,12 @@ struct PopoverView: View {
     @State private var matchRanges: [String: [Range<String.Index>]] = [:]
 
     private func recomputeFiltered() {
-        let source = (searchText.isEmpty && appState.filterKind == nil)
-            ? Array(clippings)
-            : Array(allClippings)
+        // Always sort the full `allClippings`. The view caps rendering at
+        // `visibleCount` via `.prefix(visibleCount)` in the ForEach, so
+        // paging never needs a re-sort — scrolling just reveals more of the
+        // already-sorted list. This eliminates the per-page-scroll resort that
+        // was causing mid-scroll jank.
+        let source = Array(allClippings)
 
         var result = source.sorted { $0.addDate > $1.addDate }
 
@@ -217,9 +215,9 @@ struct PopoverView: View {
         .onChange(of: allClippings.count) { _, _ in
             recomputeFiltered()
         }
-        .onChange(of: visibleCount) { _, _ in
-            recomputeFiltered()
-        }
+        // Note: no onChange(of: visibleCount) — paging is a view-layer concern,
+        // not a filter concern. Growing visibleCount doesn't need a full re-sort;
+        // the ForEach below just reveals more of the already-sorted `filtered`.
     }
 
     // MARK: - Search Bar
@@ -339,7 +337,13 @@ struct PopoverView: View {
                 .frame(maxWidth: .infinity, minHeight: 300)
             } else {
                 List {
-                    ForEach(Array(filtered.enumerated()), id: \.element.clippingID) { index, clipping in
+                    // Cap rendered rows at visibleCount — SwiftUI List is
+                    // NSTableView-backed and virtualizes cells, but the ForEach
+                    // still materializes Views for every element it iterates.
+                    // At 500+ clippings the per-render diff cost shows up as
+                    // scroll jank. visibleCount grows as the user scrolls
+                    // toward the bottom (see .onAppear below).
+                    ForEach(Array(filtered.prefix(visibleCount).enumerated()), id: \.element.clippingID) { index, clipping in
                         Group {
                             if editingClipID == clipping.clippingID {
                                 inlineEditor(for: clipping)
@@ -355,9 +359,15 @@ struct PopoverView: View {
                                     searchMatchRanges: matchRanges[clipping.clippingID]
                                 )
                                 .onAppear {
-                                    if canLoadMore, index >= filtered.count - 10 {
+                                    // Grow the rendered prefix when the user
+                                    // scrolls within 10 rows of the current cap.
+                                    if canLoadMore, index >= visibleCount - 10 {
                                         visibleCount = min(visibleCount + pageSize, maxVisibleCount)
                                     }
+                                    // Prefetch the next few thumbnails so
+                                    // scroll-back and scroll-forward both hit
+                                    // warm cache instead of re-decoding.
+                                    prefetchAdjacentThumbnails(around: index)
                                 }
                                 .onTapGesture(count: 2) { handleDoubleClick(clipping) }
                                 .onTapGesture { selectClipping(at: index) }
@@ -419,6 +429,18 @@ struct PopoverView: View {
                                             editText = clipping.text ?? clipping.url ?? ""
                                         }
                                         editingClipID = clipping.clippingID
+                                        // Collapse the "selected row" highlight onto the row
+                                        // being edited so the user doesn't see two
+                                        // highlighted rows (the editor form + the old
+                                        // selection somewhere else).
+                                        selectedIndex = index
+                                        // Pin the editor to the top so replacing the
+                                        // short card with the taller editor form doesn't
+                                        // push neighboring rows down (perceived as an
+                                        // unwanted scroll, especially on the top row).
+                                        DispatchQueue.main.async {
+                                            scrollProxy?.scrollTo(clipping.clippingID, anchor: .top)
+                                        }
                                     }
                                     Divider()
                                     Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
@@ -873,6 +895,25 @@ struct PopoverView: View {
         copyToClipboard(clipping)
         if pasteAndClose {
             StatusBarController.shared.closePopover()
+        }
+    }
+
+    /// Warm the thumbnail cache for a few rows around `index` so scroll-back
+    /// and scroll-forward both land on cache hits. Fire-and-forget — the cache
+    /// returns early if an entry already exists, and failures are silent.
+    private func prefetchAdjacentThumbnails(around index: Int) {
+        let window = 5
+        let start = max(0, index - window)
+        let end = min(filtered.count, index + window + 1)
+        guard start < end else { return }
+        for i in start..<end where i < filtered.count {
+            let clip = filtered[i]
+            guard clip.hasImage else { continue }
+            let clippingID = clip.clippingID
+            let data = clip.imageData
+            Task.detached(priority: .utility) {
+                _ = await ThumbnailCache.shared.decodeThumbnail(for: clippingID, data: data, maxSize: 96)
+            }
         }
     }
 
