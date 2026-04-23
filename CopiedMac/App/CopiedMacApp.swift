@@ -185,12 +185,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // capture-path bugs. Gated on a single UserDefaults flag so it
         // runs exactly once per device. Safe to leave in the code path
         // forever — once the flag is set, subsequent launches skip.
-        if !UserDefaults.standard.bool(forKey: "didApplyV130Cleanup") {
+        if !UserDefaults.standard.bool(forKey: "didApplyV130CleanupV2") {
             UserDefaults.standard.set(500, forKey: "maxHistorySize")
             UserDefaults.standard.set(30, forKey: "retentionDays")
             UserDefaults.standard.set(30, forKey: "trashRetentionDays")
             clipboardService.purgeEmptyClippings(in: ctx)
-            UserDefaults.standard.set(true, forKey: "didApplyV130Cleanup")
+            UserDefaults.standard.set(true, forKey: "didApplyV130CleanupV2")
         }
 
         clipboardService.trimByAge()

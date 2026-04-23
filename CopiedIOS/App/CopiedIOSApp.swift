@@ -59,7 +59,7 @@ struct CopiedIOSApp: App {
     init() {
         // Tighter defaults for v1.3.0 — match the Mac side. `register`
         // only applies when the key was never set, so users with explicit
-        // choices keep them. One-shot `didApplyV130Cleanup` below forces
+        // choices keep them. One-shot `didApplyV130CleanupV2` below forces
         // new values + sweeps Empty Clipping rows.
         UserDefaults.standard.register(defaults: [
             "maxHistorySize": 500,
@@ -115,13 +115,13 @@ struct CopiedIOSApp: App {
                 .task {
                     // One-shot v1.3.0 cleanup — tighten retention defaults
                     // + purge Empty Clipping rows. Matches Mac side.
-                    guard !UserDefaults.standard.bool(forKey: "didApplyV130Cleanup") else { return }
+                    guard !UserDefaults.standard.bool(forKey: "didApplyV130CleanupV2") else { return }
                     UserDefaults.standard.set(500, forKey: "maxHistorySize")
                     UserDefaults.standard.set(30, forKey: "retentionDays")
                     UserDefaults.standard.set(30, forKey: "trashRetentionDays")
                     let ctx = ModelContext(SharedIOSData.container)
                     clipboardService.purgeEmptyClippings(in: ctx)
-                    UserDefaults.standard.set(true, forKey: "didApplyV130Cleanup")
+                    UserDefaults.standard.set(true, forKey: "didApplyV130CleanupV2")
                 }
         }
         .modelContainer(SharedIOSData.container)

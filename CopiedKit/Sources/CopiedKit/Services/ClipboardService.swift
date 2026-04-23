@@ -146,12 +146,18 @@ public final class ClipboardService {
     /// Enqueues a `.deleteRecord` for each purged row so CloudKit mirrors
     /// the deletion on other devices.
     public func purgeEmptyClippings(in context: ModelContext) {
-        // Narrow fetch via the scalar `hasImage` index so we don't fault
-        // externalStorage blobs on every row. Detailed content checks
-        // happen in memory on the reduced set.
+        // Match `Clipping.displayTitle`'s "Empty Clipping" fallback
+        // exactly: displayTitle returns "Empty Clipping" whenever
+        // title/text/url are all empty AND hasImage is false. It does
+        // NOT inspect hasRichText / hasHTML / sourceURL — so a row
+        // with richText data but no title/text/url still shows as
+        // "Empty Clipping" and must be purged.
+        //
+        // Narrow fetch via the scalar `hasImage` index so we don't
+        // fault externalStorage blobs on every row.
         let desc = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { c in
-                c.hasImage == false && c.hasRichText == false && c.hasHTML == false
+                c.hasImage == false
             }
         )
         guard let candidates = try? context.fetch(desc) else { return }
@@ -159,8 +165,7 @@ public final class ClipboardService {
             let textEmpty = (c.text ?? "").isEmpty
             let titleEmpty = (c.title ?? "").isEmpty
             let urlEmpty = (c.url ?? "").isEmpty
-            let sourceEmpty = (c.sourceURL ?? "").isEmpty
-            return textEmpty && titleEmpty && urlEmpty && sourceEmpty
+            return textEmpty && titleEmpty && urlEmpty
         }
         guard !empties.isEmpty else { return }
         let deletedIDs = empties.map(\.clippingID)
