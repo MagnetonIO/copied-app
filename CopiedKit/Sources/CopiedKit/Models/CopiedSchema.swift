@@ -10,7 +10,7 @@ public enum CopiedSchema {
     /// entitlement. Prior identifier `iCloud.com.mlong.copied` is dead
     /// — any data there is orphaned and can be deleted from the
     /// portal or iOS Settings.
-    public static let containerIdentifier = "iCloud.com.mlong.Copied"
+    public static let containerIdentifier = "iCloud.com.magneton.Copied"
 
     public static let models: [any PersistentModel.Type] = [
         Clipping.self,

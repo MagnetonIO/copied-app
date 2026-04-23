@@ -120,7 +120,7 @@ targets:
         # cloudd / CoreData+CloudKit logs).
         com.apple.developer.aps-environment: $(APS_ENVIRONMENT)
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.mlong.Copied
+          - iCloud.com.magneton.Copied
         com.apple.developer.icloud-services:
           - CloudKit
     scheme:
@@ -223,7 +223,7 @@ targets:
         # be delivered on the wrong APNs channel and never reach the app.
         aps-environment: $(APS_ENVIRONMENT)
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.mlong.Copied
+          - iCloud.com.magneton.Copied
         com.apple.developer.icloud-services:
           - CloudKit
         # App Group lets the Share Extension write into the same SwiftData
