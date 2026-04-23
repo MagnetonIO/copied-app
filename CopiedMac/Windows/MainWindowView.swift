@@ -673,14 +673,51 @@ private func multiSelectMenuContent(
         Divider()
         if inTrash {
             Button("Delete \(selection.count) Permanently", role: .destructive) {
-                for c in selection { c.hardDelete(in: modelContext) }
+                // Snapshot into Array so @Query re-fetches triggered by
+                // the first delete can't shrink `selection` mid-loop.
+                // Also capture IDs before delete — after ctx.delete() the
+                // Clipping reference becomes invalid and clippingID access
+                // can throw.
+                let items = Array(selection)
+                let ids = items.map(\.clippingID)
+                for c in items { modelContext.delete(c) }
+                try? modelContext.save()
+                for id in ids {
+                    CopiedSyncEngine.shared.enqueueDelete(
+                        recordID: CopiedSyncEngine.clippingRecordID(id)
+                    )
+                }
             }
         } else {
             Button("Move \(selection.count) to Trash", role: .destructive) {
-                for c in selection { c.moveToTrash() }
+                // Batch-mutate locally + single save so N intermediate
+                // saves don't fire N @Query re-fetches that each shrink
+                // the active-clippings list (removing rows from the
+                // selection set) mid-loop. Was causing only the first
+                // row to get processed.
+                let items = Array(selection)
+                let now = Date()
+                for c in items {
+                    c.deleteDate = now
+                    c.modifiedDate = now
+                }
+                try? modelContext.save()
+                for c in items {
+                    CopiedSyncEngine.shared.enqueueChange(
+                        recordID: CopiedSyncEngine.clippingRecordID(c.clippingID)
+                    )
+                }
             }
             Button("Delete \(selection.count) Permanently", role: .destructive) {
-                for c in selection { c.hardDelete(in: modelContext) }
+                let items = Array(selection)
+                let ids = items.map(\.clippingID)
+                for c in items { modelContext.delete(c) }
+                try? modelContext.save()
+                for id in ids {
+                    CopiedSyncEngine.shared.enqueueDelete(
+                        recordID: CopiedSyncEngine.clippingRecordID(id)
+                    )
+                }
             }
         }
     }
