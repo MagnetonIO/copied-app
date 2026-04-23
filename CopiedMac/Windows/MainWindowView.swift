@@ -477,10 +477,7 @@ private struct TrashClippingsList: View {
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .onDeleteCommand {
-            for c in selectedClippings {
-                modelContext.delete(c)
-            }
-            try? modelContext.save()
+            for c in selectedClippings { c.hardDelete(in: modelContext) }
             selectedClippings.removeAll()
         }
         .background {
@@ -489,10 +486,7 @@ private struct TrashClippingsList: View {
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
                 Button("Empty Trash", role: .destructive) {
-                    for clip in clippings {
-                        modelContext.delete(clip)
-                    }
-                    try? modelContext.save()
+                    for clip in clippings { clip.hardDelete(in: modelContext) }
                 }
                 .disabled(clippings.isEmpty)
             }
@@ -653,14 +647,12 @@ private func clippingContextMenuContent(
     if inTrash {
         Button("Restore") { clipping.restore() }
         Button("Delete Permanently", role: .destructive) {
-            modelContext.delete(clipping)
-            try? modelContext.save()
+            clipping.hardDelete(in: modelContext)
         }
     } else {
         Button("Move to Trash", role: .destructive) { clipping.moveToTrash() }
         Button("Delete Permanently", role: .destructive) {
-            modelContext.delete(clipping)
-            try? modelContext.save()
+            clipping.hardDelete(in: modelContext)
         }
     }
 }
@@ -681,20 +673,14 @@ private func multiSelectMenuContent(
         Divider()
         if inTrash {
             Button("Delete \(selection.count) Permanently", role: .destructive) {
-                for c in selection {
-                    modelContext.delete(c)
-                }
-                try? modelContext.save()
+                for c in selection { c.hardDelete(in: modelContext) }
             }
         } else {
             Button("Move \(selection.count) to Trash", role: .destructive) {
                 for c in selection { c.moveToTrash() }
             }
             Button("Delete \(selection.count) Permanently", role: .destructive) {
-                for c in selection {
-                    modelContext.delete(c)
-                }
-                try? modelContext.save()
+                for c in selection { c.hardDelete(in: modelContext) }
             }
         }
     }
@@ -709,10 +695,7 @@ private func permanentDeleteShortcut(
     modelContext: ModelContext
 ) -> some View {
     Button("") {
-        for c in selected {
-            modelContext.delete(c)
-        }
-        try? modelContext.save()
+        for c in selected { c.hardDelete(in: modelContext) }
     }
     .keyboardShortcut(.delete, modifiers: .control)
     .frame(width: 0, height: 0)

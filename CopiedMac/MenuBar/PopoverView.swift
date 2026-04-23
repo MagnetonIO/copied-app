@@ -291,6 +291,13 @@ struct PopoverView: View {
             selectedIndex = 0
             visibleCount = pageSize
             recomputeFiltered()
+            // Fire-and-forget CKSyncEngine fetch on popover open. Unlike
+            // the earlier NSPCKC `mirrorPoke` (which did a synchronous
+            // main-actor `save()` and stalled open), CKSyncEngine's
+            // `syncNow` is fully async — wrapped in a detached Task so
+            // popover paints immediately. Inbound records (if any)
+            // stream in via the .didFetch delegate + SyncTicker refresh.
+            Task.detached { await CopiedSyncEngine.shared.syncNow() }
             // Defer scroll so SwiftUI has rendered the re-computed
             // `filtered` list before scrolling. Scrolling synchronously
             // against a stale list no-ops or lands at the wrong row.

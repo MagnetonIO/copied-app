@@ -140,6 +140,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// App-lifetime observer for `NSPersistentStoreRemoteChange`. See
     /// `applicationDidFinishLaunching` for the wiring.
     private var remoteChangeObserver: NSObjectProtocol?
+    /// Background sync triggers. CKSyncEngine's auto-sync relies on
+    /// silent push, which is unreliable on dev-signed Mac binaries
+    /// (Apple forum FB8968738). These explicit triggers compensate.
+    /// Unlike the old NSPCKC `mirrorPoke` path, these call
+    /// `CopiedSyncEngine.syncNow()` which is fully async — no
+    /// main-thread stall.
+    private var didBecomeActiveObserver: NSObjectProtocol?
+    private var didWakeObserver: NSObjectProtocol?
+    private var syncTimer: Timer?
     let pasteQueue = PasteQueueService()
     let appState = AppState()
     let syncMonitor = SyncMonitor()
@@ -208,6 +217,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CopiedSyncEngine.shared.syncMonitor = syncMonitor
         if SharedData.initialCloudSyncEnabled {
             CopiedSyncEngine.shared.start(modelContainer: SharedData.container)
+        }
+
+        // Background sync triggers — compensate for flaky silent-push
+        // delivery on dev-signed Mac binaries. All call the fully-async
+        // `CopiedSyncEngine.syncNow()` so there's no main-thread work.
+        //
+        // 1. App activation (Cmd-Tab back, Dock click): immediate catch-up
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+        ) { _ in
+            Task.detached { await CopiedSyncEngine.shared.syncNow() }
+        }
+        // 2. Wake from sleep: network just came back, force a pull
+        didWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main
+        ) { _ in
+            Task.detached { await CopiedSyncEngine.shared.syncNow() }
+        }
+        // 3. Periodic backstop every 60 s so idle sessions still converge
+        syncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task.detached { await CopiedSyncEngine.shared.syncNow() }
         }
 
         // CloudKit continuous sync: register for remote notifications so

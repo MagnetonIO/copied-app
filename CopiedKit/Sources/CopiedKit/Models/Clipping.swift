@@ -98,7 +98,16 @@ extension Clipping {
             return String(text.prefix(120)).replacingOccurrences(of: "\n", with: " ")
         }
         if let url, !url.isEmpty { return url }
+        // RichText/HTML-only clippings have no plain `text` but do
+        // have an `extractedText` from capture-time parsing. Fall back
+        // to that before giving up with "Empty Clipping" — otherwise
+        // legitimate rich-text pastes look like garbage.
+        if let extracted = extractedText, !extracted.isEmpty {
+            return String(extracted.prefix(120)).replacingOccurrences(of: "\n", with: " ")
+        }
         if hasImage { return "Image" }
+        if hasRichText { return "Rich Text" }
+        if hasHTML { return "HTML" }
         return "Empty Clipping"
     }
 
@@ -151,6 +160,21 @@ extension Clipping {
         try? modelContext?.save()
         CopiedSyncEngine.shared.enqueueChange(
             recordID: CopiedSyncEngine.clippingRecordID(clippingID)
+        )
+    }
+
+    /// Hard-delete: remove the row from the local store AND enqueue a
+    /// CloudKit delete so the record is purged from every other device.
+    /// Every permanent-delete UI path should route through this — a
+    /// raw `modelContext.delete(...)` leaves the record in CloudKit,
+    /// which then re-surfaces on the next fetch.
+    @MainActor
+    public func hardDelete(in context: ModelContext) {
+        let id = clippingID
+        context.delete(self)
+        try? context.save()
+        CopiedSyncEngine.shared.enqueueDelete(
+            recordID: CopiedSyncEngine.clippingRecordID(id)
         )
     }
 

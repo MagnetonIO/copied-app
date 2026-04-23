@@ -128,10 +128,13 @@ struct CopiedIOSApp: App {
         .onChange(of: scenePhase) { _, new in
             if new == .active {
                 // Forcing a process-pending-changes on foreground catches any
-                // CloudKit imports that arrived while backgrounded — the
-                // common path for "Mac deleted a clipping, iPhone came
-                // back and still shows it" reports.
+                // CloudKit imports that arrived while backgrounded.
                 SharedIOSData.container.mainContext.processPendingChanges()
+                // Also kick CKSyncEngine — silent-push delivery is not
+                // guaranteed, so a foreground-time fetch ensures the
+                // iPhone catches up on anything the Mac wrote while we
+                // were backgrounded.
+                Task.detached { await CopiedSyncEngine.shared.syncNow() }
             }
         }
     }

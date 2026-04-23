@@ -545,6 +545,33 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(record.recordID)])
             return
         }
+
+        // Cross-device content dedup: if this is a new-to-us record and
+        // a local active clipping already has the same text + url +
+        // image byte count, don't create a duplicate row. Also enqueue
+        // a delete so CloudKit drops the incoming record on the next
+        // send. Prevents Mac + iOS both capturing the same Handoff
+        // paste from producing two rows on every device.
+        if existing == nil, !isShell {
+            let incomingText = (record["text"] as? String) ?? ""
+            let incomingURL = (record["url"] as? String) ?? ""
+            let incomingBytes = (record["imageByteCount"] as? Int) ?? 0
+            let activeDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> { $0.deleteDate == nil }
+            )
+            if let active = try? ctx.fetch(activeDesc) {
+                let isDuplicate = active.contains { c in
+                    (c.text ?? "") == incomingText &&
+                    (c.url ?? "") == incomingURL &&
+                    c.imageByteCount == incomingBytes
+                }
+                if isDuplicate {
+                    engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(record.recordID)])
+                    return
+                }
+            }
+        }
+
         let incomingModified = record["modifiedDate"] as? Date
 
         if let existing {
