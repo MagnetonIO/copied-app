@@ -302,16 +302,25 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// empty.
     @MainActor
     public func performFullWipe(modelContainer: ModelContainer) async {
-        // 1. Wipe local SwiftData rows. Hard-delete — no trash — because
-        //    this is an explicit user-confirmed full nuke.
-        let ctx = ModelContext(modelContainer)
+        // 1. Wipe local SwiftData rows using the SHARED mainContext so
+        //    the view's @Query observers see the deletes immediately.
+        //    A fresh ModelContext also saves to the same persistent
+        //    store, but the view's main-actor context doesn't auto-
+        //    refresh from cross-context writes — user saw stale rows.
+        let ctx = modelContainer.mainContext
         if let clippings = try? ctx.fetch(FetchDescriptor<Clipping>()) {
+            NSLog("[CopiedSyncEngine] wiping \(clippings.count) clippings")
             for c in clippings { ctx.delete(c) }
         }
         if let lists = try? ctx.fetch(FetchDescriptor<ClipList>()) {
+            NSLog("[CopiedSyncEngine] wiping \(lists.count) lists")
             for l in lists { ctx.delete(l) }
         }
-        try? ctx.save()
+        do {
+            try ctx.save()
+        } catch {
+            NSLog("[CopiedSyncEngine] wipe-save failed: \(error)")
+        }
 
         // 2. Delete the CloudKit zones directly — the fastest path to
         //    drop hundreds of MB of server data. We delete:
@@ -325,16 +334,24 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone", ownerName: CKCurrentUserDefaultName)
         ]
         for zoneID in zones {
-            _ = try? await db.deleteRecordZone(withID: zoneID)
+            do {
+                _ = try await db.deleteRecordZone(withID: zoneID)
+                NSLog("[CopiedSyncEngine] deleted zone \(zoneID.zoneName)")
+            } catch {
+                // Zone may not exist — that's fine.
+                NSLog("[CopiedSyncEngine] deleteRecordZone \(zoneID.zoneName) failed (OK if zone didn't exist): \(error.localizedDescription)")
+            }
         }
 
-        // 3. Clear persisted engine state + any remaining cache so the
-        //    next launch starts from zero. stateQueue.sync guards the
-        //    dict reset against concurrent reads in baseRecord.
+        // 3. Clear persisted engine state + every sibling file (outbound
+        //    blob cache) so the next launch starts from zero.
+        //    stateQueue.sync guards the dict reset against concurrent
+        //    reads in baseRecord.
         stateQueue.sync {
             persisted = Persisted()
         }
-        try? FileManager.default.removeItem(at: stateFileURL)
+        let parent = stateFileURL.deletingLastPathComponent()
+        try? FileManager.default.removeItem(at: parent)
     }
 
     // MARK: - Record-ID builders

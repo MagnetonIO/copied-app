@@ -366,6 +366,7 @@ private struct AllClippingsList: View {
         }
         .background {
             permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
+            selectAllShortcut(items: filtered, selection: $selectedClippings)
         }
         .overlay {
             if filtered.isEmpty {
@@ -420,6 +421,7 @@ private struct FavoritesClippingsList: View {
         }
         .background {
             permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
+            selectAllShortcut(items: filtered, selection: $selectedClippings)
         }
         .overlay {
             if filtered.isEmpty {
@@ -482,6 +484,7 @@ private struct TrashClippingsList: View {
         }
         .background {
             permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
+            selectAllShortcut(items: filtered, selection: $selectedClippings)
         }
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
@@ -553,6 +556,7 @@ private struct ListClippingsList: View {
         }
         .background {
             permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
+            selectAllShortcut(items: filtered, selection: $selectedClippings)
         }
         .overlay {
             if filtered.isEmpty {
@@ -671,13 +675,18 @@ private func multiSelectMenuContent(
 ) -> some View {
     if selection.count > 1, selection.contains(clickedRow) {
         Divider()
+        // Single bulk action per Finder/Mail conventions:
+        // - In Trash view: permanent delete (the only valid destructive
+        //   action on already-trashed rows).
+        // - Elsewhere: move-to-trash (the ⌫ standard; hard delete stays
+        //   reserved for individual rows via ⌃⌫ or per-row context menu).
+        //
+        // Snapshot selection into an Array first so the @Query re-fetch
+        // after the first mutation can't shrink the set mid-loop. For
+        // hard-delete, capture clippingIDs before ctx.delete() since the
+        // model reference becomes invalid after.
         if inTrash {
-            Button("Delete \(selection.count) Permanently", role: .destructive) {
-                // Snapshot into Array so @Query re-fetches triggered by
-                // the first delete can't shrink `selection` mid-loop.
-                // Also capture IDs before delete — after ctx.delete() the
-                // Clipping reference becomes invalid and clippingID access
-                // can throw.
+            Button("Delete \(selection.count) Clippings", role: .destructive) {
                 let items = Array(selection)
                 let ids = items.map(\.clippingID)
                 for c in items { modelContext.delete(c) }
@@ -689,12 +698,7 @@ private func multiSelectMenuContent(
                 }
             }
         } else {
-            Button("Move \(selection.count) to Trash", role: .destructive) {
-                // Batch-mutate locally + single save so N intermediate
-                // saves don't fire N @Query re-fetches that each shrink
-                // the active-clippings list (removing rows from the
-                // selection set) mid-loop. Was causing only the first
-                // row to get processed.
+            Button("Delete \(selection.count) Clippings", role: .destructive) {
                 let items = Array(selection)
                 let now = Date()
                 for c in items {
@@ -705,17 +709,6 @@ private func multiSelectMenuContent(
                 for c in items {
                     CopiedSyncEngine.shared.enqueueChange(
                         recordID: CopiedSyncEngine.clippingRecordID(c.clippingID)
-                    )
-                }
-            }
-            Button("Delete \(selection.count) Permanently", role: .destructive) {
-                let items = Array(selection)
-                let ids = items.map(\.clippingID)
-                for c in items { modelContext.delete(c) }
-                try? modelContext.save()
-                for id in ids {
-                    CopiedSyncEngine.shared.enqueueDelete(
-                        recordID: CopiedSyncEngine.clippingRecordID(id)
                     )
                 }
             }
@@ -739,6 +732,27 @@ private func permanentDeleteShortcut(
     .opacity(0)
     .accessibilityHidden(true)
     .disabled(selected.isEmpty)
+}
+
+/// Hidden focusable button that claims ⌘A and selects every visible
+/// row. SwiftUI's `List(selection:)` with `Set<Element>` does NOT
+/// implement ⌘A natively (unlike AppKit's NSTableView), so we inject
+/// it with a zero-size button whose keyboardShortcut is picked up by
+/// the responder chain. Placed inside each list's `.background { ... }`.
+@MainActor
+@ViewBuilder
+private func selectAllShortcut(
+    items: [Clipping],
+    selection: Binding<Set<Clipping>>
+) -> some View {
+    Button("") {
+        selection.wrappedValue = Set(items)
+    }
+    .keyboardShortcut("a", modifiers: .command)
+    .frame(width: 0, height: 0)
+    .opacity(0)
+    .accessibilityHidden(true)
+    .disabled(items.isEmpty)
 }
 
 // MARK: - Color Helper
