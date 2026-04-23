@@ -123,10 +123,16 @@ public final class ClipboardService {
             }
         )
         guard let expired = try? modelContext.fetch(descriptor), !expired.isEmpty else { return }
+        let deletedIDs = expired.map(\.clippingID)
         for clipping in expired {
             modelContext.delete(clipping)
         }
         try? modelContext.save()
+        for id in deletedIDs {
+            CopiedSyncEngine.shared.enqueueDelete(
+                recordID: CopiedSyncEngine.clippingRecordID(id)
+            )
+        }
     }
 
     /// Permanently deletes trashed clippings whose `deleteDate` is older than
@@ -143,10 +149,16 @@ public final class ClipboardService {
         guard let trashed = try? modelContext.fetch(descriptor) else { return }
         let expired = trashed.filter { ($0.deleteDate ?? .distantFuture) < cutoff }
         guard !expired.isEmpty else { return }
+        let deletedIDs = expired.map(\.clippingID)
         for clipping in expired {
             modelContext.delete(clipping)
         }
         try? modelContext.save()
+        for id in deletedIDs {
+            CopiedSyncEngine.shared.enqueueDelete(
+                recordID: CopiedSyncEngine.clippingRecordID(id)
+            )
+        }
     }
 
     public func configure(modelContext: ModelContext) {
@@ -419,6 +431,13 @@ public final class ClipboardService {
         try? modelContext.save()
         lastCapturedDate = Date()
         captureCount += 1
+        // Push the new clipping to CloudKit via CKSyncEngine. Safe to
+        // call even if the engine hasn't started (gate off / not
+        // signed-in) — the call buffers pending changes in the engine's
+        // state, flushed on first `sendChanges`.
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clipping.clippingID)
+        )
 
         enforceHistoryLimit()
         trimByAge()

@@ -36,9 +36,25 @@ extension ClipList {
     @MainActor
     public func deleteTrashingClippings(in context: ModelContext) {
         for clipping in clippings ?? [] {
-            clipping.moveToTrash()
+            clipping.moveToTrash()  // enqueues its own .saveRecord
         }
+        let deletedListID = listID
         context.delete(self)
         try? context.save()
+        // List is hard-deleted, so push a .deleteRecord to CloudKit.
+        CopiedSyncEngine.shared.enqueueDelete(
+            recordID: CopiedSyncEngine.clipListRecordID(deletedListID)
+        )
+    }
+
+    /// Flush any local property edit (rename, color change, sortOrder)
+    /// through SwiftData + CKSyncEngine. Mirrors `Clipping.persist()`.
+    @MainActor
+    public func persist() {
+        modifiedDate = Date()
+        try? modelContext?.save()
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clipListRecordID(listID)
+        )
     }
 }

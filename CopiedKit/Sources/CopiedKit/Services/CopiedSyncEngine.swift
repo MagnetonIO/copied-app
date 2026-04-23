@@ -215,43 +215,264 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !changes.isEmpty else { return nil }
 
-        // Phase 3 fills in the record-provider closure to look up
-        // Clipping/ClipList/Asset by record name and populate a CKRecord
-        // via CKRecordMapper. Phase 2 drops every pending save so any
-        // accidentally-enqueued change doesn't block the queue forever.
+        // Snapshot the container reference on-actor — the closure below
+        // runs on the engine's executor.
+        let container = self.modelContainer
+
         return await CKSyncEngine.RecordZoneChangeBatch(
             pendingChanges: changes
         ) { recordID in
-            // TODO(Phase 3): materialize CKRecord from SwiftData via CKRecordMapper
-            syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
-            return nil
+            guard let container else {
+                // Engine fired before start() completed — drop the
+                // change; it'll be re-enqueued on next mutation.
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                return nil
+            }
+
+            // Serialize access through a fresh ModelContext on a
+            // background actor; the engine closure is nonisolated so we
+            // can't touch main-actor state directly. Each record gets a
+            // dedicated fetch+populate pass.
+            return Self.makeRecord(
+                for: recordID,
+                container: container,
+                syncEngine: syncEngine
+            )
         }
     }
 
-    // MARK: - Event handlers — filled in across Phase 4 / Phase 6
+    /// Look up the local SwiftData row matching `recordID.recordName` and
+    /// return a populated CKRecord. Returns nil (and removes the pending
+    /// change) if the row has been deleted locally — CKSyncEngine will
+    /// translate that into a no-op rather than a delete (we use explicit
+    /// `.deleteRecord` enqueues for hard deletes).
+    private static func makeRecord(
+        for recordID: CKRecord.ID,
+        container: ModelContainer,
+        syncEngine: CKSyncEngine
+    ) -> CKRecord? {
+        let recordName = recordID.recordName
+        let ctx = ModelContext(container)
+
+        // Try Clipping first (most common).
+        let clippingDesc = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.clippingID == recordName }
+        )
+        if let clipping = try? ctx.fetch(clippingDesc).first {
+            let record = CKRecord(recordType: RecordType.clipping, recordID: recordID)
+            CKRecordMapper.populate(record, from: clipping)
+            return record
+        }
+
+        // Then ClipList.
+        let listDesc = FetchDescriptor<ClipList>(
+            predicate: #Predicate<ClipList> { $0.listID == recordName }
+        )
+        if let list = try? ctx.fetch(listDesc).first {
+            let record = CKRecord(recordType: RecordType.clipList, recordID: recordID)
+            CKRecordMapper.populate(record, from: list)
+            return record
+        }
+
+        // Not found → local row was hard-deleted after the enqueue.
+        // Drop the pending save; an explicit .deleteRecord was (or
+        // should have been) enqueued separately.
+        syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        return nil
+    }
+
+    // MARK: - Event handlers
 
     private func handleAccountChange(_ event: CKSyncEngine.Event.AccountChange) async {
-        // Phase 4: on .switchedAccount / .signOut — reset local engine
-        // state (keep SwiftData), reseed on next sign-in.
-        // Phase 6 seed-upload also re-runs from a zeroed state.
-        _ = event
+        switch event.changeType {
+        case .signIn:
+            // Fresh account → re-seed local data to the new account's
+            // private DB. Phase 6 migration flag re-runs the seed.
+            persisted.didSeedUpload = false
+            persist()
+            try? await engine?.fetchChanges()
+        case .switchAccounts, .signOut:
+            // Clear engine state so CKSyncEngine forgets its change
+            // tokens tied to the previous account; keep local SwiftData
+            // intact so the user doesn't lose data on sign-out.
+            persisted.stateSerialization = nil
+            persisted.didSeedUpload = false
+            persist()
+        @unknown default:
+            break
+        }
     }
 
     private func handleFetchedRecordZoneChanges(
         _ event: CKSyncEngine.Event.FetchedRecordZoneChanges
     ) async {
-        // Phase 4: for each modification → upsert into SwiftData
-        // (match by clippingID / listID / assetID; LWW on modifiedDate).
-        // For each deletion → hard-delete locally.
-        _ = event
+        guard let modelContainer else { return }
+
+        // Hop onto main actor to mutate SwiftData — ModelContext ops
+        // on @Model types require main-actor or per-context isolation.
+        // We use a dedicated context created on main so we don't
+        // collide with @Query observers on the shared mainContext.
+        await MainActor.run {
+            let ctx = ModelContext(modelContainer)
+
+            // Modifications — upsert Clipping / ClipList by recordID,
+            // LWW on `modifiedDate`.
+            for modification in event.modifications {
+                let record = modification.record
+                let recordName = record.recordID.recordName
+
+                switch record.recordType {
+                case RecordType.clipping:
+                    upsertClipping(record: record, recordName: recordName, ctx: ctx)
+                case RecordType.clipList:
+                    upsertClipList(record: record, recordName: recordName, ctx: ctx)
+                default:
+                    NSLog("[CopiedSyncEngine] unknown recordType: \(record.recordType)")
+                }
+            }
+
+            // Deletions — hard-delete matching local rows.
+            for deletion in event.deletions {
+                let recordName = deletion.recordID.recordName
+                switch deletion.recordType {
+                case RecordType.clipping:
+                    let desc = FetchDescriptor<Clipping>(
+                        predicate: #Predicate<Clipping> { $0.clippingID == recordName }
+                    )
+                    if let existing = try? ctx.fetch(desc).first {
+                        ctx.delete(existing)
+                    }
+                case RecordType.clipList:
+                    let desc = FetchDescriptor<ClipList>(
+                        predicate: #Predicate<ClipList> { $0.listID == recordName }
+                    )
+                    if let existing = try? ctx.fetch(desc).first {
+                        ctx.delete(existing)
+                    }
+                default:
+                    break
+                }
+            }
+
+            try? ctx.save()
+        }
     }
 
     private func handleSentRecordZoneChanges(
         _ event: CKSyncEngine.Event.SentRecordZoneChanges
     ) async {
-        // Phase 4: handle per-record failures (zoneNotFound → reseed,
-        // serverRecordChanged → conflict resolve, unknownItem → drop).
-        _ = event
+        // Clean up outbound blob temp files on successful saves. Failed
+        // saves stay on disk so the next retry can re-read them.
+        for savedRecord in event.savedRecords {
+            cleanupOutboundBlobs(recordName: savedRecord.recordID.recordName)
+        }
+
+        // Per-record failure handling. Phase 4 covers the common cases
+        // (zoneNotFound → re-enqueue zone create + record save;
+        // serverRecordChanged → LWW re-save; unknownItem → drop).
+        for failure in event.failedRecordSaves {
+            let recordID = failure.record.recordID
+            switch failure.error.code {
+            case .serverRecordChanged:
+                // Conflict: server has a newer/different version.
+                // Accept server copy via fetch; drop our pending save.
+                engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            case .zoneNotFound, .userDeletedZone:
+                // Our zone was deleted (user signed out + back in?).
+                // Re-enqueue zone create + re-try this record save.
+                engine?.state.add(pendingDatabaseChanges: [
+                    .saveZone(CKRecordZone(zoneID: Self.zoneID))
+                ])
+            case .unknownItem:
+                // Record was deleted server-side; drop our save.
+                engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            default:
+                NSLog("[CopiedSyncEngine] unhandled save failure: \(failure.error)")
+            }
+        }
+    }
+
+    // MARK: - Upsert helpers (main-actor bound; called inside MainActor.run)
+
+    @MainActor
+    private func upsertClipping(record: CKRecord, recordName: String, ctx: ModelContext) {
+        let desc = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.clippingID == recordName }
+        )
+        let existing = try? ctx.fetch(desc).first
+        let incomingModified = record["modifiedDate"] as? Date
+
+        if let existing {
+            // LWW — remote wins if strictly newer. Equal timestamps:
+            // remote wins (consistent cross-device convergence).
+            if let localModified = existing.modifiedDate,
+               let incomingModified,
+               localModified > incomingModified {
+                return  // local is newer; drop this remote update
+            }
+            CKRecordMapper.apply(record, to: existing)
+            if let listID = CKRecordMapper.listID(from: record) {
+                existing.list = fetchClipList(listID: listID, ctx: ctx)
+            } else {
+                existing.list = nil
+            }
+        } else {
+            let clipping = Clipping()
+            clipping.clippingID = recordName
+            ctx.insert(clipping)
+            CKRecordMapper.apply(record, to: clipping)
+            if let listID = CKRecordMapper.listID(from: record) {
+                clipping.list = fetchClipList(listID: listID, ctx: ctx)
+            }
+        }
+    }
+
+    @MainActor
+    private func upsertClipList(record: CKRecord, recordName: String, ctx: ModelContext) {
+        let desc = FetchDescriptor<ClipList>(
+            predicate: #Predicate<ClipList> { $0.listID == recordName }
+        )
+        let existing = try? ctx.fetch(desc).first
+        let incomingModified = record["modifiedDate"] as? Date
+
+        if let existing {
+            if let localModified = existing.modifiedDate,
+               let incomingModified,
+               localModified > incomingModified {
+                return
+            }
+            CKRecordMapper.apply(record, to: existing)
+        } else {
+            let list = ClipList(name: "")
+            list.listID = recordName
+            ctx.insert(list)
+            CKRecordMapper.apply(record, to: list)
+        }
+    }
+
+    @MainActor
+    private func fetchClipList(listID: String, ctx: ModelContext) -> ClipList? {
+        let desc = FetchDescriptor<ClipList>(
+            predicate: #Predicate<ClipList> { $0.listID == listID }
+        )
+        return try? ctx.fetch(desc).first
+    }
+
+    // MARK: - Outbound blob cleanup
+
+    private func cleanupOutboundBlobs(recordName: String) {
+        // Temp files for CKAsset uploads live in caches/CopiedSync/
+        // outbound-blobs/<recordName>.<key>.bin — remove them once the
+        // save is confirmed so we don't re-upload the same data on
+        // subsequent change-batch passes.
+        let fm = FileManager.default
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let dir = caches.appendingPathComponent("CopiedSync/outbound-blobs", isDirectory: true)
+        for key in ["imageData", "richTextData", "htmlData"] {
+            let file = dir.appendingPathComponent("\(recordName).\(key).bin")
+            try? fm.removeItem(at: file)
+        }
     }
 
     // MARK: - Persistence

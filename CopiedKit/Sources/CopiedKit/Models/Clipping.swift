@@ -129,12 +129,18 @@ extension Clipping {
         // menu, etc.) gets cross-device propagation without remembering
         // to call save manually.
         try? modelContext?.save()
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clippingID)
+        )
     }
 
     public func restore() {
         deleteDate = nil
         modifiedDate = Date()
         try? modelContext?.save()
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clippingID)
+        )
     }
 
     /// Flush any pending property mutations (favorite, pin, title, etc.)
@@ -143,6 +149,9 @@ extension Clipping {
     public func persist() {
         modifiedDate = Date()
         try? modelContext?.save()
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clippingID)
+        )
     }
 
     public func markUsed() {
@@ -154,6 +163,12 @@ extension Clipping {
         // change so CloudKit mirror pushes lastUsedDate/addDate to other
         // devices. Without this the MRU ordering is per-device local.
         try? modelContext?.save()
+        // CKSyncEngine coalesces same-record-ID enqueues between sends,
+        // so rapid pastes of the same clipping naturally collapse into
+        // a single upload without explicit per-ID debouncing.
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clippingID)
+        )
     }
 
     #if canImport(AppKit)
