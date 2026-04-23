@@ -23,50 +23,72 @@ struct GeneralSettingsView: View {
     @State private var presentsDeleteAllConfirm = false
     @State private var presentsDeleteAllComplete = false
 
-    var body: some View {
-        Form {
-            Section("Capture") {
-                Toggle("Allow Duplicates", isOn: $allowDuplicates)
-                Toggle("Capture Images", isOn: $captureImages)
-                Toggle("Capture Rich Text", isOn: $captureRichText)
-            }
-            Section("History") {
-                Stepper("Max History: \(maxHistorySize)",
-                        value: $maxHistorySize, in: 500...50000, step: 500)
-                Stepper(retentionDays == -1 ? "Retention: Forever" : "Retention: \(retentionDays) days",
-                        value: $retentionDays, in: -1...365, step: 1)
-                Stepper("Trash: \(trashRetentionDays) days",
-                        value: $trashRetentionDays, in: 1...90, step: 1)
-            }
-            Section {
-                Button {
-                    presentsDedupConfirm = true
-                } label: {
-                    HStack {
-                        Text("Remove Duplicates")
-                            .foregroundStyle(Color.copiedTeal)
-                        Spacer()
-                        if let msg = dedupResultMessage {
-                            Text(msg)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+    // MARK: - Sections
+
+    private var captureSection: some View {
+        Section("Capture") {
+            Toggle("Allow Duplicates", isOn: $allowDuplicates)
+            Toggle("Capture Images", isOn: $captureImages)
+            Toggle("Capture Rich Text", isOn: $captureRichText)
+        }
+    }
+
+    private var historySection: some View {
+        Section("History") {
+            Stepper("Max History: \(maxHistorySize)",
+                    value: $maxHistorySize, in: 500...50000, step: 500)
+            Stepper(retentionDays == -1 ? "Retention: Forever" : "Retention: \(retentionDays) days",
+                    value: $retentionDays, in: -1...365, step: 1)
+            Stepper("Trash: \(trashRetentionDays) days",
+                    value: $trashRetentionDays, in: 1...90, step: 1)
+        }
+    }
+
+    private var removeDuplicatesSection: some View {
+        Section {
+            Button {
+                presentsDedupConfirm = true
+            } label: {
+                HStack {
+                    Text("Remove Duplicates")
+                        .foregroundStyle(Color.copiedTeal)
+                    Spacer()
+                    if let msg = dedupResultMessage {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-            } footer: {
-                Text("Scans your history for clippings with identical content and moves all but the earliest copy to Trash. Recoverable for the next \(trashRetentionDays) days.")
             }
+        } footer: {
+            Text("Scans your history for clippings with identical content and moves all but the earliest copy to Trash. Recoverable for the next \(trashRetentionDays) days.")
+        }
+    }
 
-            Section("Danger Zone") {
-                Button(role: .destructive) {
-                    presentsDeleteAllConfirm = true
-                } label: {
-                    Text("Delete All Data")
-                        .foregroundStyle(Color.red)
-                }
-            } footer: {
-                Text("Removes every clipping and list from this iPhone, all paired devices via CloudKit, and the Copied iCloud zone. Irreversible.")
+    private var dangerZoneSection: some View {
+        Section {
+            Button(role: .destructive) {
+                presentsDeleteAllConfirm = true
+            } label: {
+                Text("Delete All Data")
+                    .foregroundStyle(Color.red)
             }
+        } header: {
+            Text("Danger Zone")
+        } footer: {
+            Text("Removes every clipping and list from this iPhone, all paired devices via CloudKit, and the Copied iCloud zone. Irreversible.")
+        }
+    }
+
+    var body: some View {
+        // Split into computed Section properties — SwiftUI's
+        // type-checker times out on a single Form with 4+ Sections
+        // containing Toggles / Steppers / conditional labels.
+        Form {
+            captureSection
+            historySection
+            removeDuplicatesSection
+            dangerZoneSection
         }
         .scrollContentBackground(.hidden)
         .background(Color.copiedCanvas)
