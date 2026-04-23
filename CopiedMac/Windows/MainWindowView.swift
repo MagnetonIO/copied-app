@@ -23,7 +23,11 @@ struct MainWindowView: View {
     @Query(filter: #Predicate<Clipping> { $0.deleteDate != nil })
     private var trashedClippings: [Clipping]
 
-    @State private var selectedClipping: Clipping?
+    /// Multi-selection set — `List` uses `Set<Element>` to enable
+    /// shift-click range-select and ⌘-click multi-select. Detail view
+    /// binds to the first element of the set (showing the most recent
+    /// focus target); destructive actions operate on the whole set.
+    @State private var selectedClippings: Set<Clipping> = []
     @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -44,13 +48,13 @@ struct MainWindowView: View {
             ClippingListBySelection(
                 selection: appState.sidebarSelection,
                 searchText: searchText,
-                selectedClipping: $selectedClipping
+                selectedClippings: $selectedClippings
             )
             .onChange(of: appState.sidebarSelection) { _, _ in
-                selectedClipping = nil
+                selectedClippings.removeAll()
             }
             .onChange(of: searchText) { _, _ in
-                selectedClipping = nil
+                selectedClippings.removeAll()
             }
             .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 500)
         } detail: {
@@ -222,7 +226,13 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let clipping = selectedClipping {
+        if selectedClippings.count > 1 {
+            ContentUnavailableView(
+                "\(selectedClippings.count) Clippings Selected",
+                systemImage: "square.stack",
+                description: Text("Right-click to apply an action to all selected items.")
+            )
+        } else if let clipping = selectedClippings.first {
             ClippingDetail(clipping: clipping)
         } else {
             ContentUnavailableView(
@@ -287,18 +297,18 @@ struct MainWindowView: View {
 struct ClippingListBySelection: View {
     let selection: SidebarItem
     let searchText: String
-    @Binding var selectedClipping: Clipping?
+    @Binding var selectedClippings: Set<Clipping>
 
     var body: some View {
         switch selection {
         case .all:
-            AllClippingsList(searchText: searchText, selectedClipping: $selectedClipping)
+            AllClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
         case .favorites:
-            FavoritesClippingsList(searchText: searchText, selectedClipping: $selectedClipping)
+            FavoritesClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
         case .trash:
-            TrashClippingsList(searchText: searchText, selectedClipping: $selectedClipping)
+            TrashClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
         case .list(let list):
-            ListClippingsList(list: list, searchText: searchText, selectedClipping: $selectedClipping)
+            ListClippingsList(list: list, searchText: searchText, selectedClippings: $selectedClippings)
         }
     }
 }
@@ -307,7 +317,7 @@ struct ClippingListBySelection: View {
 
 private struct AllClippingsList: View {
     let searchText: String
-    @Binding var selectedClipping: Clipping?
+    @Binding var selectedClippings: Set<Clipping>
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -331,7 +341,7 @@ private struct AllClippingsList: View {
             $0.title?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.url?.localizedCaseInsensitiveContains(searchText) == true
         }
-        return List(filtered, selection: $selectedClipping) { clipping in
+        return List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
                 .contextMenu {
@@ -341,12 +351,21 @@ private struct AllClippingsList: View {
                         modelContext: modelContext,
                         inTrash: false
                     )
+                    multiSelectMenuContent(
+                        clickedRow: clipping,
+                        selection: selectedClippings,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
-        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .onDeleteCommand {
+            for c in selectedClippings { c.moveToTrash() }
+            selectedClippings.removeAll()
+        }
         .background {
-            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+            permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
         }
         .overlay {
             if filtered.isEmpty {
@@ -360,7 +379,7 @@ private struct AllClippingsList: View {
 
 private struct FavoritesClippingsList: View {
     let searchText: String
-    @Binding var selectedClipping: Clipping?
+    @Binding var selectedClippings: Set<Clipping>
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -376,7 +395,7 @@ private struct FavoritesClippingsList: View {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.title?.localizedCaseInsensitiveContains(searchText) == true
         }
-        List(filtered, selection: $selectedClipping) { clipping in
+        List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
                 .contextMenu {
@@ -386,12 +405,21 @@ private struct FavoritesClippingsList: View {
                         modelContext: modelContext,
                         inTrash: false
                     )
+                    multiSelectMenuContent(
+                        clickedRow: clipping,
+                        selection: selectedClippings,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
-        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .onDeleteCommand {
+            for c in selectedClippings { c.moveToTrash() }
+            selectedClippings.removeAll()
+        }
         .background {
-            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+            permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
         }
         .overlay {
             if filtered.isEmpty {
@@ -406,7 +434,7 @@ private struct FavoritesClippingsList: View {
 
 private struct TrashClippingsList: View {
     let searchText: String
-    @Binding var selectedClipping: Clipping?
+    @Binding var selectedClippings: Set<Clipping>
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -421,7 +449,7 @@ private struct TrashClippingsList: View {
         let filtered = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
-        List(filtered, selection: $selectedClipping) { clipping in
+        List(filtered, selection: $selectedClippings) { clipping in
             HStack {
                 ClippingRow(clipping: clipping)
                 Spacer()
@@ -439,17 +467,24 @@ private struct TrashClippingsList: View {
                     modelContext: modelContext,
                     inTrash: true
                 )
+                multiSelectMenuContent(
+                    clickedRow: clipping,
+                    selection: selectedClippings,
+                    modelContext: modelContext,
+                    inTrash: true
+                )
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .onDeleteCommand {
-            if let sel = selectedClipping {
-                modelContext.delete(sel)
-                try? modelContext.save()
+            for c in selectedClippings {
+                modelContext.delete(c)
             }
+            try? modelContext.save()
+            selectedClippings.removeAll()
         }
         .background {
-            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+            permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
         }
         .toolbar {
             ToolbarItem(placement: .destructiveAction) {
@@ -475,16 +510,16 @@ private struct TrashClippingsList: View {
 private struct ListClippingsList: View {
     let list: ClipList
     let searchText: String
-    @Binding var selectedClipping: Clipping?
+    @Binding var selectedClippings: Set<Clipping>
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
     @Query private var clippings: [Clipping]
 
-    init(list: ClipList, searchText: String, selectedClipping: Binding<Clipping?>) {
+    init(list: ClipList, searchText: String, selectedClippings: Binding<Set<Clipping>>) {
         self.list = list
         self.searchText = searchText
-        self._selectedClipping = selectedClipping
+        self._selectedClippings = selectedClippings
 
         let listID = list.listID
         _clippings = Query(
@@ -499,7 +534,7 @@ private struct ListClippingsList: View {
         let filtered = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
-        List(filtered, selection: $selectedClipping) { clipping in
+        List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
                 .contextMenu {
@@ -509,12 +544,21 @@ private struct ListClippingsList: View {
                         modelContext: modelContext,
                         inTrash: false
                     )
+                    multiSelectMenuContent(
+                        clickedRow: clipping,
+                        selection: selectedClippings,
+                        modelContext: modelContext,
+                        inTrash: false
+                    )
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
-        .onDeleteCommand { selectedClipping?.moveToTrash() }
+        .onDeleteCommand {
+            for c in selectedClippings { c.moveToTrash() }
+            selectedClippings.removeAll()
+        }
         .background {
-            permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
+            permanentDeleteShortcut(selected: selectedClippings, modelContext: modelContext)
         }
         .overlay {
             if filtered.isEmpty {
@@ -621,25 +665,60 @@ private func clippingContextMenuContent(
     }
 }
 
+/// Extra menu items that only appear when the user has a multi-
+/// selection and right-clicks on one of the selected rows. Lets you
+/// right-click any row in a ⌘/⇧-selected set to trash / delete the
+/// whole set in one go, matching Finder / Mail semantics.
+@MainActor
+@ViewBuilder
+private func multiSelectMenuContent(
+    clickedRow: Clipping,
+    selection: Set<Clipping>,
+    modelContext: ModelContext,
+    inTrash: Bool
+) -> some View {
+    if selection.count > 1, selection.contains(clickedRow) {
+        Divider()
+        if inTrash {
+            Button("Delete \(selection.count) Permanently", role: .destructive) {
+                for c in selection {
+                    modelContext.delete(c)
+                }
+                try? modelContext.save()
+            }
+        } else {
+            Button("Move \(selection.count) to Trash", role: .destructive) {
+                for c in selection { c.moveToTrash() }
+            }
+            Button("Delete \(selection.count) Permanently", role: .destructive) {
+                for c in selection {
+                    modelContext.delete(c)
+                }
+                try? modelContext.save()
+            }
+        }
+    }
+}
+
 /// Hidden focusable button that claims the ⌃⌫ shortcut for the List it's backgrounded on.
 /// `.onDeleteCommand` on the List handles plain ⌫; this covers the ⌃⌫ variant (permanent delete).
 @MainActor
 @ViewBuilder
 private func permanentDeleteShortcut(
-    selected: Clipping?,
+    selected: Set<Clipping>,
     modelContext: ModelContext
 ) -> some View {
     Button("") {
-        if let sel = selected {
-            modelContext.delete(sel)
-            try? modelContext.save()
+        for c in selected {
+            modelContext.delete(c)
         }
+        try? modelContext.save()
     }
     .keyboardShortcut(.delete, modifiers: .control)
     .frame(width: 0, height: 0)
     .opacity(0)
     .accessibilityHidden(true)
-    .disabled(selected == nil)
+    .disabled(selected.isEmpty)
 }
 
 // MARK: - Color Helper
