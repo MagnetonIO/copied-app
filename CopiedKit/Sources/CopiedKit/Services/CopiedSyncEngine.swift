@@ -84,6 +84,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         /// The CKRecordZone name the serialization above was captured
         /// under. Used by `start()` to detect zone-rename migrations.
         var lastZoneName: String?
+        /// recordName → encoded CKRecord system fields (recordChangeTag,
+        /// creationDate, modifiedBy, etc). Essential for UPDATE sends:
+        /// without a base record carrying the server's current etag,
+        /// every save is sent as an INSERT and fails with
+        /// `serverRecordChanged` (CKError code 2) once the record
+        /// exists. Updated on every successful send + on any fetched
+        /// record; rebased from `error.serverRecord` on conflict.
+        var lastKnownRecordSystemFields: [String: Data] = [:]
     }
 
     private var persisted: Persisted
@@ -377,7 +385,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             predicate: #Predicate<Clipping> { $0.clippingID == recordName }
         )
         if let clipping = try? ctx.fetch(clippingDesc).first {
-            let record = CKRecord(recordType: RecordType.clipping, recordID: recordID)
+            // Base on cached system fields (etag) if we have them,
+            // otherwise construct fresh for the first-time INSERT.
+            // `shared` singleton safe here — setup happens on MainActor
+            // during app launch, inbound/outbound mutations happen on
+            // the engine's serial queue.
+            let record = Self.shared.baseRecord(
+                for: recordName, type: RecordType.clipping
+            )
             CKRecordMapper.populate(record, from: clipping)
             return record
         }
@@ -387,7 +402,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             predicate: #Predicate<ClipList> { $0.listID == recordName }
         )
         if let list = try? ctx.fetch(listDesc).first {
-            let record = CKRecord(recordType: RecordType.clipList, recordID: recordID)
+            let record = Self.shared.baseRecord(
+                for: recordName, type: RecordType.clipList
+            )
             CKRecordMapper.populate(record, from: list)
             return record
         }
@@ -482,27 +499,57 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 syncMonitor?.applyExternalStatus(SyncMonitor.SyncStatus.synced(Date()))
             }
         }
+
+        // Cache the server's system fields for each fetched modification
+        // so the next outbound save for this record uses the correct
+        // etag and doesn't collide.
+        for mod in event.modifications {
+            rememberSystemFields(of: mod.record)
+        }
+        // Deletions: drop any cached system fields so future saves of the
+        // same ID (e.g. restore flow) start fresh.
+        for del in event.deletions {
+            persisted.lastKnownRecordSystemFields.removeValue(
+                forKey: del.recordID.recordName
+            )
+        }
+        persist()
     }
 
     private func handleSentRecordZoneChanges(
         _ event: CKSyncEngine.Event.SentRecordZoneChanges
     ) async {
-        // Clean up outbound blob temp files on successful saves. Failed
-        // saves stay on disk so the next retry can re-read them.
+        // Successful save → record's system fields now carry the
+        // server-assigned etag. Cache for the next UPDATE cycle AND
+        // clean up the outbound CKAsset blob temp files.
         for savedRecord in event.savedRecords {
+            rememberSystemFields(of: savedRecord)
             cleanupOutboundBlobs(recordName: savedRecord.recordID.recordName)
         }
+        // Deletions also update the cache — drop the entry.
+        for deletedID in event.deletedRecordIDs {
+            persisted.lastKnownRecordSystemFields.removeValue(
+                forKey: deletedID.recordName
+            )
+        }
+        persist()
 
-        // Per-record failure handling. Phase 4 covers the common cases
-        // (zoneNotFound → re-enqueue zone create + record save;
-        // serverRecordChanged → LWW re-save; unknownItem → drop).
+        // Per-record failure handling.
         for failure in event.failedRecordSaves {
             let recordID = failure.record.recordID
             switch failure.error.code {
             case .serverRecordChanged:
-                // Conflict: server has a newer/different version.
-                // Accept server copy via fetch; drop our pending save.
-                engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                // The server's record for this ID has a newer etag than
+                // what we sent. The error carries `serverRecord` — cache
+                // its system fields so the NEXT send uses them as base.
+                // Leave the pending change in place so CKSyncEngine
+                // retries (now armed with correct etag). This is the
+                // canonical Apple-recommended pattern from their
+                // sample-cloudkit-sync-engine repo.
+                if let serverRecord = failure.error.serverRecord {
+                    rememberSystemFields(of: serverRecord)
+                }
+                // Don't remove — let the engine retry with updated base.
             case .zoneNotFound, .userDeletedZone:
                 // Our zone was deleted (user signed out + back in?).
                 // Re-enqueue zone create + re-try this record save.
@@ -510,8 +557,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                     .saveZone(CKRecordZone(zoneID: Self.zoneID))
                 ])
             case .unknownItem:
-                // Record was deleted server-side; drop our save.
+                // Record was deleted server-side; drop our save + cache.
                 engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                persisted.lastKnownRecordSystemFields.removeValue(
+                    forKey: recordID.recordName
+                )
+                persist()
             default:
                 NSLog("[CopiedSyncEngine] unhandled save failure: \(failure.error)")
             }
@@ -645,6 +696,50 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             let file = dir.appendingPathComponent("\(recordName).\(key).bin")
             try? fm.removeItem(at: file)
         }
+    }
+
+    // MARK: - CKRecord system-fields cache (fixes serverRecordChanged)
+
+    /// Serialize a record's system fields (etag, zone, created-by, …)
+    /// for later rehydration. Stored per-recordName in `persisted` so
+    /// we survive app restarts.
+    private static func encodeSystemFields(_ record: CKRecord) -> Data {
+        let coder = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: coder)
+        coder.finishEncoding()
+        return coder.encodedData
+    }
+
+    /// Rehydrate a CKRecord from cached system-fields data. Returns nil
+    /// if data is corrupt or absent — caller falls back to a fresh
+    /// `CKRecord(recordType:, recordID:)`.
+    private static func decodeRecord(from data: Data) -> CKRecord? {
+        guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else {
+            return nil
+        }
+        unarchiver.requiresSecureCoding = true
+        return CKRecord(coder: unarchiver)
+    }
+
+    /// Produce a base CKRecord for `recordName` / `recordType` — using
+    /// the cached system fields if we have them (so the outbound save
+    /// is an UPDATE at the correct etag) or a fresh record otherwise
+    /// (first-time INSERT).
+    fileprivate func baseRecord(for recordName: String, type: String) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: recordName, zoneID: Self.zoneID)
+        if let data = persisted.lastKnownRecordSystemFields[recordName],
+           let rehydrated = Self.decodeRecord(from: data) {
+            return rehydrated
+        }
+        return CKRecord(recordType: type, recordID: recordID)
+    }
+
+    /// Cache the system fields of a record we've either successfully
+    /// sent or fetched. Writes `persisted` to disk via the async queue.
+    fileprivate func rememberSystemFields(of record: CKRecord) {
+        persisted.lastKnownRecordSystemFields[record.recordID.recordName] =
+            Self.encodeSystemFields(record)
+        persist()
     }
 
     // MARK: - Persistence
