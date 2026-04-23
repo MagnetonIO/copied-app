@@ -343,46 +343,13 @@ struct SettingsView: View {
     @State private var showDeleteAllConfirm = false
     @State private var showDeleteAllComplete = false
 
-    /// Nuke path: delete every SwiftData row, then ask CKSyncEngine to
-    /// drop both custom zones (`Copied` + legacy NSPCKC auto-zone) via
-    /// raw CKDatabase ops. Clears the engine's persisted state so the
-    /// next launch creates a fresh zone with no orphan change tokens.
+    /// Thin wrapper around the shared `CopiedSyncEngine.performFullWipe`
+    /// so both platforms go through identical nuke-everything logic.
     @MainActor
     private func performDeleteAll() async {
-        let ctx = ModelContext(SharedData.container)
-
-        // 1. Wipe all local SwiftData rows. Hard delete — no trash —
-        // because the user explicitly confirmed a full nuke.
-        if let clippings = try? ctx.fetch(FetchDescriptor<Clipping>()) {
-            for c in clippings { ctx.delete(c) }
-        }
-        if let lists = try? ctx.fetch(FetchDescriptor<ClipList>()) {
-            for l in lists { ctx.delete(l) }
-        }
-        try? ctx.save()
-
-        // 2. Delete the CloudKit zones directly — fastest way to drop
-        // 900+ MB. We delete both the new "Copied" zone and the legacy
-        // NSPCKC auto-zone so no orphan data remains.
-        let container = CKContainer(identifier: CopiedSchema.containerIdentifier)
-        let db = container.privateCloudDatabase
-        let zones: [CKRecordZone.ID] = [
-            CKRecordZone.ID(zoneName: "Copied", ownerName: CKCurrentUserDefaultName),
-            CKRecordZone.ID(zoneName: "copied", ownerName: CKCurrentUserDefaultName),
-            CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone", ownerName: CKCurrentUserDefaultName)
-        ]
-        for zoneID in zones {
-            _ = try? await db.deleteRecordZone(withID: zoneID)
-        }
-
-        // 3. Clear the engine's cached state + seed flag so next launch
-        // starts from a clean slate. Also reset the V130 cleanup flag
-        // so the empty-shell purge doesn't run against the empty DB.
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        if let dir = support?.appendingPathComponent("CopiedSync", isDirectory: true) {
-            try? FileManager.default.removeItem(at: dir)
-        }
-
+        await CopiedSyncEngine.shared.performFullWipe(
+            modelContainer: SharedData.container
+        )
         showDeleteAllComplete = true
     }
 

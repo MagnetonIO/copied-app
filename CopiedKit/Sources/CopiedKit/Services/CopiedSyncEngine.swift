@@ -92,6 +92,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         /// exists. Updated on every successful send + on any fetched
         /// record; rebased from `error.serverRecord` on conflict.
         var lastKnownRecordSystemFields: [String: Data] = [:]
+        /// clippingID → listID for Clippings whose ClipList arrived
+        /// later than (or before) the Clipping record. CKSyncEngine
+        /// batch ordering is non-deterministic; a Clipping referencing
+        /// a ClipList that hasn't upserted yet would have
+        /// `list = nil` permanently. We record the orphan link here;
+        /// `upsertClipList` scans + re-stitches once the target list
+        /// upserts. Entry cleared on re-stitch.
+        var pendingListReferences: [String: String] = [:]
     }
 
     private var persisted: Persisted
@@ -169,10 +177,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // `sendChanges`. Legacy NSPCKC-mirrored `CD_*` records in the old
         // zone are left alone — they become orphaned cloud garbage and
         // can be cleaned up via CloudKit Dashboard by the user.
+        //
+        // NOTE: don't flip `didSeedUpload` here — that's done in
+        // `handleSentRecordZoneChanges` after observing at least one
+        // successful save. Flipping it eagerly would orphan queued
+        // changes if the app crashes / network fails before the first
+        // send lands, causing `serverRecordChanged` floods on relaunch.
         if !persisted.didSeedUpload {
             seedLocalData(container: modelContainer)
-            persisted.didSeedUpload = true
-            persist()
         }
     }
 
@@ -224,10 +236,23 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     // MARK: - Public API — wired to Sync Now, Resume Monitoring, etc. in Phase 5
 
+    /// Guards against overlapping syncNow() calls. Multiple triggers
+    /// (timer + didBecomeActive + popover-open + Sync Now button) can
+    /// fire within a second of each other; without this flag each
+    /// queues a separate fetchChanges/sendChanges pair on CKSyncEngine,
+    /// which can interleave mid-batch and lose pending mutations.
+    /// `@MainActor`-isolated read/write is the simplest correct pattern.
+    @MainActor private var syncInFlight = false
+
     /// Manual sync — fetch first (pull inbound), then send (push outbound).
     /// Matches the user's "Sync Now" semantics: one button, both directions.
+    /// Concurrent calls are no-ops while a sync is already running.
+    @MainActor
     public func syncNow() async {
+        guard !syncInFlight else { return }
         guard let engine else { return }
+        syncInFlight = true
+        defer { syncInFlight = false }
         do {
             try await engine.fetchChanges()
             try await engine.sendChanges()
@@ -253,6 +278,49 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     public func enqueueDelete(recordID: CKRecord.ID) {
         engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+    }
+
+    /// Nuke-everything path: wipes every local Clipping/ClipList row,
+    /// deletes all CloudKit zones the app has touched (current + legacy
+    /// orphans), clears the engine's state file, zeroes in-memory
+    /// caches. Shared between the Mac Settings → Danger Zone button
+    /// and the iOS equivalent. Idempotent — safe to call when already
+    /// empty.
+    @MainActor
+    public func performFullWipe(modelContainer: ModelContainer) async {
+        // 1. Wipe local SwiftData rows. Hard-delete — no trash — because
+        //    this is an explicit user-confirmed full nuke.
+        let ctx = ModelContext(modelContainer)
+        if let clippings = try? ctx.fetch(FetchDescriptor<Clipping>()) {
+            for c in clippings { ctx.delete(c) }
+        }
+        if let lists = try? ctx.fetch(FetchDescriptor<ClipList>()) {
+            for l in lists { ctx.delete(l) }
+        }
+        try? ctx.save()
+
+        // 2. Delete the CloudKit zones directly — the fastest path to
+        //    drop hundreds of MB of server data. We delete:
+        //    - "Copied" (current CKSyncEngine custom zone)
+        //    - "copied" (legacy lowercase, in case any data remains)
+        //    - "com.apple.coredata.cloudkit.zone" (legacy NSPCKC auto-zone)
+        let db = container.privateCloudDatabase
+        let zones: [CKRecordZone.ID] = [
+            Self.zoneID,
+            CKRecordZone.ID(zoneName: "copied", ownerName: CKCurrentUserDefaultName),
+            CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone", ownerName: CKCurrentUserDefaultName)
+        ]
+        for zoneID in zones {
+            _ = try? await db.deleteRecordZone(withID: zoneID)
+        }
+
+        // 3. Clear persisted engine state + any remaining cache so the
+        //    next launch starts from zero. stateQueue.sync guards the
+        //    dict reset against concurrent reads in baseRecord.
+        stateQueue.sync {
+            persisted = Persisted()
+        }
+        try? FileManager.default.removeItem(at: stateFileURL)
     }
 
     // MARK: - Record-ID builders
@@ -469,7 +537,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 }
             }
 
-            // Deletions — hard-delete matching local rows.
+            // Deletions — hard-delete matching local rows, but skip if
+            // the local row was modified in the last 5 seconds. That's
+            // usually a user-visible race (device A recovered the
+            // clipping from trash while device B was emptying trash);
+            // honoring the delete would hard-remove a just-recovered
+            // row. 5 s is a heuristic — a proper fix needs a server-side
+            // delete timestamp, which requires a record-schema change.
+            let recentEditWindow: TimeInterval = 5
             for deletion in event.deletions {
                 let recordName = deletion.recordID.recordName
                 switch deletion.recordType {
@@ -478,6 +553,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                         predicate: #Predicate<Clipping> { $0.clippingID == recordName }
                     )
                     if let existing = try? ctx.fetch(desc).first {
+                        if let localModified = existing.modifiedDate,
+                           localModified.timeIntervalSinceNow > -recentEditWindow {
+                            // Local was edited very recently — skip this
+                            // delete, the edit probably supersedes it.
+                            continue
+                        }
                         ctx.delete(existing)
                     }
                 case RecordType.clipList:
@@ -485,6 +566,10 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                         predicate: #Predicate<ClipList> { $0.listID == recordName }
                     )
                     if let existing = try? ctx.fetch(desc).first {
+                        if let localModified = existing.modifiedDate,
+                           localModified.timeIntervalSinceNow > -recentEditWindow {
+                            continue
+                        }
                         ctx.delete(existing)
                     }
                 default:
@@ -531,6 +616,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             persisted.lastKnownRecordSystemFields.removeValue(
                 forKey: deletedID.recordName
             )
+        }
+        // First successful save confirms CKSyncEngine actually delivered
+        // something — safe to mark the seed migration done. Guarding on
+        // `savedRecords.isEmpty == false` ensures we don't flip the
+        // flag on a batch with only failures.
+        if !persisted.didSeedUpload && !event.savedRecords.isEmpty {
+            persisted.didSeedUpload = true
         }
         persist()
 
@@ -597,56 +689,90 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             return
         }
 
-        // Cross-device content dedup: if this is a new-to-us record and
-        // a local active clipping already has the same text + url +
-        // image byte count, don't create a duplicate row. Also enqueue
-        // a delete so CloudKit drops the incoming record on the next
-        // send. Prevents Mac + iOS both capturing the same Handoff
-        // paste from producing two rows on every device.
-        if existing == nil, !isShell {
-            let incomingText = (record["text"] as? String) ?? ""
-            let incomingURL = (record["url"] as? String) ?? ""
-            let incomingBytes = (record["imageByteCount"] as? Int) ?? 0
-            let activeDesc = FetchDescriptor<Clipping>(
-                predicate: #Predicate<Clipping> { $0.deleteDate == nil }
-            )
-            if let active = try? ctx.fetch(activeDesc) {
-                let isDuplicate = active.contains { c in
-                    (c.text ?? "") == incomingText &&
-                    (c.url ?? "") == incomingURL &&
-                    c.imageByteCount == incomingBytes
-                }
-                if isDuplicate {
-                    engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(record.recordID)])
-                    return
-                }
-            }
-        }
+        // Per Apple's canonical CKSyncEngine pattern (sample-cloudkit-
+        // sync-engine): treat every fetch as an idempotent upsert keyed
+        // on recordID.recordName. Do NOT content-dedup on the inbound
+        // path — a fetched echo of our own recent save WILL match local
+        // content by definition; deleting the incoming record as
+        // "duplicate" destroys the canonical server copy and cascades
+        // deletes to peers. Dedup responsibility lives at capture time
+        // (ClipboardService.finalizeCapture's isDuplicateOfLast) and
+        // at user-initiated cleanup (multi-select delete / Empty
+        // Trash). Trust the recordID for identity; let LWW handle the
+        // rest below.
 
         let incomingModified = record["modifiedDate"] as? Date
+        let incomingDeleteDate = record["deleteDate"] as? Date
 
         if let existing {
-            // LWW — remote wins if strictly newer. Equal timestamps:
-            // remote wins (consistent cross-device convergence).
+            // deleteDate override: trash is one-way. If EITHER side has
+            // deleteDate set, trash state wins regardless of modifiedDate.
+            // Prevents a peer's concurrent pin/favorite edit (with a
+            // newer modifiedDate) from un-trashing a clipping the user
+            // just deleted.
+            let localDeleted = existing.deleteDate != nil
+            let incomingDeleted = incomingDeleteDate != nil
+            if !localDeleted && incomingDeleted {
+                // Remote trashed it; accept the delete state.
+                CKRecordMapper.apply(record, to: existing)
+                resolveListReference(
+                    for: existing, record: record, recordName: recordName, ctx: ctx
+                )
+                return
+            }
+            if localDeleted && !incomingDeleted {
+                // Local already in trash; ignore incoming un-trashed
+                // version (means peer hasn't yet seen our trash).
+                return
+            }
+
+            // Standard LWW on modifiedDate. Equal timestamps: remote
+            // wins (consistent cross-device convergence).
             if let localModified = existing.modifiedDate,
                let incomingModified,
                localModified > incomingModified {
                 return  // local is newer; drop this remote update
             }
             CKRecordMapper.apply(record, to: existing)
-            if let listID = CKRecordMapper.listID(from: record) {
-                existing.list = fetchClipList(listID: listID, ctx: ctx)
-            } else {
-                existing.list = nil
-            }
+            resolveListReference(
+                for: existing, record: record, recordName: recordName, ctx: ctx
+            )
         } else {
             let clipping = Clipping()
             clipping.clippingID = recordName
             ctx.insert(clipping)
             CKRecordMapper.apply(record, to: clipping)
-            if let listID = CKRecordMapper.listID(from: record) {
-                clipping.list = fetchClipList(listID: listID, ctx: ctx)
+            resolveListReference(
+                for: clipping, record: record, recordName: recordName, ctx: ctx
+            )
+        }
+    }
+
+    /// Apply the ClipList reference from an inbound Clipping record.
+    /// If the ClipList doesn't exist locally yet, record a pending link
+    /// in `persisted.pendingListReferences`; `upsertClipList` re-stitches
+    /// the relationship when the list eventually arrives.
+    @MainActor
+    private func resolveListReference(
+        for clipping: Clipping,
+        record: CKRecord,
+        recordName: String,
+        ctx: ModelContext
+    ) {
+        if let listID = CKRecordMapper.listID(from: record) {
+            if let list = fetchClipList(listID: listID, ctx: ctx) {
+                clipping.list = list
+                persisted.pendingListReferences.removeValue(forKey: recordName)
+            } else {
+                // ClipList hasn't arrived yet. Remember the desired
+                // relationship; upsertClipList will restitch below.
+                clipping.list = nil
+                persisted.pendingListReferences[recordName] = listID
+                persist()
             }
+        } else {
+            clipping.list = nil
+            persisted.pendingListReferences.removeValue(forKey: recordName)
         }
     }
 
@@ -658,6 +784,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         let existing = try? ctx.fetch(desc).first
         let incomingModified = record["modifiedDate"] as? Date
 
+        let list: ClipList
         if let existing {
             if let localModified = existing.modifiedDate,
                let incomingModified,
@@ -665,11 +792,31 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 return
             }
             CKRecordMapper.apply(record, to: existing)
+            list = existing
         } else {
-            let list = ClipList(name: "")
-            list.listID = recordName
-            ctx.insert(list)
-            CKRecordMapper.apply(record, to: list)
+            let newList = ClipList(name: "")
+            newList.listID = recordName
+            ctx.insert(newList)
+            CKRecordMapper.apply(record, to: newList)
+            list = newList
+        }
+
+        // Orphan re-stitch: any Clippings that referenced this listID
+        // while it was missing can now be linked.
+        let orphanClippingIDs = persisted.pendingListReferences
+            .filter { $0.value == recordName }
+            .map(\.key)
+        for cid in orphanClippingIDs {
+            let orphanDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> { $0.clippingID == cid }
+            )
+            if let orphan = try? ctx.fetch(orphanDesc).first {
+                orphan.list = list
+            }
+            persisted.pendingListReferences.removeValue(forKey: cid)
+        }
+        if !orphanClippingIDs.isEmpty {
+            persist()
         }
     }
 
@@ -725,10 +872,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// the cached system fields if we have them (so the outbound save
     /// is an UPDATE at the correct etag) or a fresh record otherwise
     /// (first-time INSERT).
+    ///
+    /// Called from `makeRecord` inside `nextRecordZoneChangeBatch`'s
+    /// record-provider closure (nonisolated, on the CKSyncEngine
+    /// queue), while `rememberSystemFields` writes to the same dict
+    /// from both the engine queue AND MainActor-isolated paths. The
+    /// read/write pair must be serialized — we use `stateQueue.sync`
+    /// since the queue is already a serial DispatchQueue independent
+    /// of main, no deadlock risk.
     fileprivate func baseRecord(for recordName: String, type: String) -> CKRecord {
         let recordID = CKRecord.ID(recordName: recordName, zoneID: Self.zoneID)
-        if let data = persisted.lastKnownRecordSystemFields[recordName],
-           let rehydrated = Self.decodeRecord(from: data) {
+        let cachedData = stateQueue.sync {
+            persisted.lastKnownRecordSystemFields[recordName]
+        }
+        if let data = cachedData, let rehydrated = Self.decodeRecord(from: data) {
             return rehydrated
         }
         return CKRecord(recordType: type, recordID: recordID)
@@ -736,9 +893,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     /// Cache the system fields of a record we've either successfully
     /// sent or fetched. Writes `persisted` to disk via the async queue.
+    /// The in-memory dict write is guarded by `stateQueue.sync` to
+    /// serialize against `baseRecord`'s read path.
     fileprivate func rememberSystemFields(of record: CKRecord) {
-        persisted.lastKnownRecordSystemFields[record.recordID.recordName] =
-            Self.encodeSystemFields(record)
+        let data = Self.encodeSystemFields(record)
+        let key = record.recordID.recordName
+        stateQueue.sync {
+            persisted.lastKnownRecordSystemFields[key] = data
+        }
         persist()
     }
 

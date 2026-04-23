@@ -37,6 +37,8 @@ struct ClippingsListScreen: View {
     /// Phase 14 — bottom-left clip icon opens an editable "Save
     /// Clipping" panel pre-filled from `UIPasteboard.general`.
     @State private var presentsSaveSheet = false
+    /// Trash view only: confirmation before emptying.
+    @State private var showEmptyTrashConfirm = false
 
     /// Shared with `GeneralSettingsView` and Mac `SettingsView`. Default 5000
     /// matches Mac so the over-limit indicator lights up consistently across
@@ -111,6 +113,19 @@ struct ClippingsListScreen: View {
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, placement: .automatic, prompt: "Search")
         .toolbar {
+            // Empty Trash — only shown when viewing the trash list.
+            // Hard-deletes every trashed clipping + enqueues CloudKit
+            // deletes so peer devices converge.
+            if selection == .trash {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        showEmptyTrashConfirm = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(Color.red)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showActionSheet = true
@@ -119,6 +134,18 @@ struct ClippingsListScreen: View {
                         .foregroundStyle(Color.copiedTeal)
                 }
             }
+        }
+        .confirmationDialog(
+            "Empty Trash?",
+            isPresented: $showEmptyTrashConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Empty Trash", role: .destructive) {
+                emptyTrash()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Permanently deletes all trashed clippings on this device and on every other device signed into this iCloud account. This cannot be undone.")
         }
         .sheet(isPresented: $showActionSheet, onDismiss: runPendingActionSheetAction) {
             ClippingActionSheet(
@@ -169,6 +196,18 @@ struct ClippingsListScreen: View {
         case .sort:
             showSortPicker = true
         }
+    }
+
+    /// Hard-delete every trashed clipping + enqueue CloudKit deletes so
+    /// peers drop them too. Snapshot into Array first (same pattern as
+    /// Mac multi-select) so re-fetches triggered by the first delete
+    /// don't shrink the iteration set mid-loop.
+    private func emptyTrash() {
+        let desc = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.deleteDate != nil }
+        )
+        guard let trashed = try? modelContext.fetch(desc), !trashed.isEmpty else { return }
+        for c in trashed { c.hardDelete(in: modelContext) }
     }
 
     private func copyToClipboard(_ clipping: Clipping) {
