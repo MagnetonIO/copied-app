@@ -57,6 +57,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     private var engine: CKSyncEngine?
     private weak var modelContainer: ModelContainer?
 
+    /// App's existing observable status façade. Set by AppDelegate after
+    /// both the engine and monitor are constructed. Engine events
+    /// (`handleEvent`) update the monitor's status via main-actor hops
+    /// so SwiftUI views keep binding to `SyncMonitor` unchanged.
+    @MainActor
+    public weak var syncMonitor: SyncMonitor?
+
     /// Serialized alongside `CKSyncEngine.State.Serialization` so both
     /// survive relaunches. Also carries migration flags (Phase 6).
     private struct Persisted: Codable {
@@ -197,13 +204,39 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         case .sentRecordZoneChanges(let e):
             await handleSentRecordZoneChanges(e)
 
-        case .sentDatabaseChanges, .willFetchChanges, .willFetchRecordZoneChanges,
-             .didFetchRecordZoneChanges, .didFetchChanges, .willSendChanges, .didSendChanges:
-            // Lifecycle events — Phase 5 hooks these to drive UI status.
+        case .willFetchChanges:
+            await updateStatus(SyncMonitor.SyncStatus.syncing(direction: "Checking…"))
+
+        case .willSendChanges:
+            await updateStatus(SyncMonitor.SyncStatus.syncing(direction: "Uploading…"))
+
+        case .didFetchChanges:
+            // If we didn't flip to `.synced(...)` from the modifications
+            // path, fall back to `.available` so the label doesn't lie
+            // with a stale "Synced Xm ago".
+            await updateStatusIfSyncing(SyncMonitor.SyncStatus.available)
+
+        case .didSendChanges:
+            await updateStatusIfSyncing(SyncMonitor.SyncStatus.available)
+
+        case .sentDatabaseChanges, .willFetchRecordZoneChanges,
+             .didFetchRecordZoneChanges:
             break
 
         @unknown default:
             NSLog("[CopiedSyncEngine] unknown event: \(event)")
+        }
+    }
+
+    @MainActor
+    private func updateStatus(_ new: SyncMonitor.SyncStatus) {
+        syncMonitor?.applyExternalStatus(new)
+    }
+
+    @MainActor
+    private func updateStatusIfSyncing(_ new: SyncMonitor.SyncStatus) {
+        if case .syncing = syncMonitor?.status {
+            syncMonitor?.applyExternalStatus(new)
         }
     }
 
@@ -355,6 +388,11 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             }
 
             try? ctx.save()
+
+            // Real import landed → honest status.
+            if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                syncMonitor?.applyExternalStatus(SyncMonitor.SyncStatus.synced(Date()))
+            }
         }
     }
 

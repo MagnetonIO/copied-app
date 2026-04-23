@@ -18,7 +18,7 @@ public final class SyncMonitor {
         public var label: String {
             switch self {
             case .notStarted: return "Not syncing"
-            case .available: return "iCloud On"
+            case .available: return "Up to date"
             case .noAccount: return "No iCloud"
             case .syncing(let dir): return dir
             case .synced(let date):
@@ -40,6 +40,14 @@ public final class SyncMonitor {
     public private(set) var status: SyncStatus = .notStarted
     public private(set) var importCount: Int = 0
     public private(set) var exportCount: Int = 0
+
+    /// Allow `CopiedSyncEngine` (the real owner of sync state post-
+    /// migration) to push status updates without exposing the setter
+    /// everywhere. Public-module-visibility; intended only for the
+    /// engine's delegate event handlers.
+    public func applyExternalStatus(_ new: SyncStatus) {
+        status = new
+    }
     public var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "cloudSyncEnabled") != false }
         set {

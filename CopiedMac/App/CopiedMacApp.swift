@@ -187,6 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // mirroring. Starts only when the user's cloudSync gate is on.
         // Engine manages its own APNs subscriptions; no extra
         // `registerForRemoteNotifications` call needed for it.
+        // Wire the engine's status updates through to the existing
+        // `SyncMonitor` so the popover pill and settings view bind
+        // unchanged — engine drives the label, monitor is the façade.
+        CopiedSyncEngine.shared.syncMonitor = syncMonitor
         if SharedData.initialCloudSyncEnabled {
             CopiedSyncEngine.shared.start(modelContainer: SharedData.container)
         }

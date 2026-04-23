@@ -63,12 +63,10 @@ struct MainWindowView: View {
             if !appState.searchText.isEmpty && searchText.isEmpty {
                 searchText = appState.searchText
             }
-            // Restore "sync on open" behavior: explicitly hit CloudKit +
-            // bump SyncTicker so every view observing `.tick` refreshes
-            // against the latest local store state. Same pathway as the
-            // Sync Now button, invoked automatically whenever the main
-            // window first appears (or is re-opened after a close).
-            syncMonitor.triggerSync()
+            // Real manual sync via CKSyncEngine on window open. Pulls
+            // anything iOS pushed since we last fetched and pushes any
+            // local mutations that queued up while the window was closed.
+            Task { await CopiedSyncEngine.shared.syncNow() }
         }
         .onChange(of: appState.searchText) { _, newValue in
             if newValue != searchText {

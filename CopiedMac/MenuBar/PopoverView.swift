@@ -884,13 +884,20 @@ struct PopoverView: View {
                         clipboardService.stop()
                     } else {
                         clipboardService.start()
-                        // Catch up on anything iOS pushed while we were paused.
-                        syncMonitor.triggerSync()
+                        // Real manual sync via CKSyncEngine — fetch +
+                        // send. Catches up anything iOS pushed while we
+                        // were paused AND flushes anything local that
+                        // queued up during the pause.
+                        Task { await CopiedSyncEngine.shared.syncNow() }
                     }
                 }
                 Divider()
                 Button("Sync Now") {
-                    syncMonitor.triggerSync()
+                    // Explicit user-triggered sync: engine.fetchChanges()
+                    // followed by engine.sendChanges(). Unlike the old
+                    // NSPCKC path, this actually pulls from and pushes
+                    // to the server synchronously with the click.
+                    Task { await CopiedSyncEngine.shared.syncNow() }
                 }
                 Divider()
                 Button("Quit Copied") { NSApplication.shared.terminate(nil) }

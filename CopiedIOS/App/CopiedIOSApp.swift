@@ -77,11 +77,12 @@ struct CopiedIOSApp: App {
         }
 
         // CKSyncEngine (iOS 17+) — replaces NSPCKC automatic mirroring.
-        // Starts only when the user's cloudSync gate is on. During the
-        // transition phases (2–6), engine runs alongside NSPCKC mirror;
-        // Phase 7 removes NSPCKC and this becomes the sole sync layer.
-        if SharedIOSData.initialCloudSyncEnabled {
-            Task { @MainActor in
+        // Starts only when the user's cloudSync gate is on. iOS doesn't
+        // currently bind SyncScreen to a SyncMonitor instance; it'll
+        // pull engine state directly via `CopiedSyncEngine.shared.*`
+        // once SyncScreen is updated in Phase 5+.
+        Task { @MainActor in
+            if SharedIOSData.initialCloudSyncEnabled {
                 CopiedSyncEngine.shared.start(modelContainer: SharedIOSData.container)
             }
         }
