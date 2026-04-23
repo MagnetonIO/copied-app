@@ -39,8 +39,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// clean-start migration (Phase 6), old `CD_*` records in the NSPCKC
     /// zone become orphaned. `CKSyncEngine` has no knowledge of that
     /// legacy zone.
+    ///
+    /// Capitalized "Copied" matches the app brand. If a previous build
+    /// used a different zone name (e.g. early "copied" lowercase), the
+    /// state-nuking check in `start()` detects the mismatch and forces
+    /// a clean seed into the new zone.
     public static let zoneID = CKRecordZone.ID(
-        zoneName: "copied",
+        zoneName: "Copied",
         ownerName: CKCurrentUserDefaultName
     )
 
@@ -65,13 +70,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     public weak var syncMonitor: SyncMonitor?
 
     /// Serialized alongside `CKSyncEngine.State.Serialization` so both
-    /// survive relaunches. Also carries migration flags (Phase 6).
+    /// survive relaunches. Also carries migration flags (Phase 6) and
+    /// the zone name the state was captured under — so we can detect
+    /// a zone rename (e.g. "copied" → "Copied") and force a clean
+    /// re-seed rather than carry stale change tokens into a zone that
+    /// no longer exists.
     private struct Persisted: Codable {
         var stateSerialization: CKSyncEngine.State.Serialization?
         /// Set after a successful one-time upload of pre-existing local
         /// SwiftData rows on first launch post-CKSyncEngine migration.
         /// Guarantees we don't re-seed on every launch.
         var didSeedUpload: Bool = false
+        /// The CKRecordZone name the serialization above was captured
+        /// under. Used by `start()` to detect zone-rename migrations.
+        var lastZoneName: String?
     }
 
     private var persisted: Persisted
@@ -109,6 +121,19 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     public func start(modelContainer: ModelContainer) {
         if engine != nil { return }
         self.modelContainer = modelContainer
+
+        // Zone-rename detection: if the persisted state was captured
+        // under a different zone name (or no zone name at all — pre-
+        // upgrade state files), clear the serialization and re-seed.
+        // Stale change tokens from a different zone are worthless and
+        // can confuse the engine's reconciliation.
+        if persisted.lastZoneName != Self.zoneID.zoneName {
+            NSLog("[CopiedSyncEngine] zone changed: '\(persisted.lastZoneName ?? "nil")' → '\(Self.zoneID.zoneName)'. Clearing state + forcing re-seed.")
+            persisted.stateSerialization = nil
+            persisted.didSeedUpload = false
+            persisted.lastZoneName = Self.zoneID.zoneName
+            persist()
+        }
 
         var config = CKSyncEngine.Configuration(
             database: container.privateCloudDatabase,

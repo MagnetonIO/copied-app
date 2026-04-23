@@ -135,6 +135,47 @@ public final class ClipboardService {
         }
     }
 
+    /// Hard-delete clippings that have zero usable content — no text,
+    /// title, url, image, rich-text, or HTML. These are leftovers from
+    /// earlier capture-path bugs (capture ran but failed to populate
+    /// any content field) and show up in the popover as "Empty Clipping"
+    /// rows. Safe to run unconditionally: the `displayTitle` path
+    /// returns "Empty Clipping" only when ALL content predicates are
+    /// empty, which is the same predicate used here.
+    ///
+    /// Enqueues a `.deleteRecord` for each purged row so CloudKit mirrors
+    /// the deletion on other devices.
+    public func purgeEmptyClippings(in context: ModelContext) {
+        // Narrow fetch via the scalar `hasImage` index so we don't fault
+        // externalStorage blobs on every row. Detailed content checks
+        // happen in memory on the reduced set.
+        let desc = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { c in
+                c.hasImage == false && c.hasRichText == false && c.hasHTML == false
+            }
+        )
+        guard let candidates = try? context.fetch(desc) else { return }
+        let empties = candidates.filter { c in
+            let textEmpty = (c.text ?? "").isEmpty
+            let titleEmpty = (c.title ?? "").isEmpty
+            let urlEmpty = (c.url ?? "").isEmpty
+            let sourceEmpty = (c.sourceURL ?? "").isEmpty
+            return textEmpty && titleEmpty && urlEmpty && sourceEmpty
+        }
+        guard !empties.isEmpty else { return }
+        let deletedIDs = empties.map(\.clippingID)
+        for clipping in empties {
+            context.delete(clipping)
+        }
+        try? context.save()
+        for id in deletedIDs {
+            CopiedSyncEngine.shared.enqueueDelete(
+                recordID: CopiedSyncEngine.clippingRecordID(id)
+            )
+        }
+        NSLog("[ClipboardService] purgeEmptyClippings removed \(empties.count) rows")
+    }
+
     /// Permanently deletes trashed clippings whose `deleteDate` is older than
     /// `trashRetentionDays`. Keeps favorites out (a user can favorite something
     /// already in trash; better not to surprise-delete it).

@@ -57,6 +57,16 @@ struct CopiedIOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Tighter defaults for v1.3.0 — match the Mac side. `register`
+        // only applies when the key was never set, so users with explicit
+        // choices keep them. One-shot `didApplyV130Cleanup` below forces
+        // new values + sweeps Empty Clipping rows.
+        UserDefaults.standard.register(defaults: [
+            "maxHistorySize": 500,
+            "retentionDays": 30,
+            "trashRetentionDays": 30
+        ])
+
         #if MAS_STOREFRONT
         // Start the Transaction.updates listener immediately so Ask-to-Buy
         // approvals, refunds, and revocations that arrive after launch are
@@ -65,6 +75,9 @@ struct CopiedIOSApp: App {
         // StoreKit. The user is prompted to restart on next settings visit.
         _ = PurchaseManager.shared
         #endif
+
+        // One-shot v1.3.0 cleanup runs in `body`'s `.task` below — Swift
+        // structs can't capture `self` into escaping closures from `init`.
 
         // Register for remote notifications so CloudKit's silent pushes
         // can wake the app when another device modifies a record. Without
@@ -98,6 +111,17 @@ struct CopiedIOSApp: App {
                     // predicates (iOS 18+ sometimes misses field-update
                     // imports for soft-deletes like `deleteDate = now`).
                     SharedIOSData.container.mainContext.processPendingChanges()
+                }
+                .task {
+                    // One-shot v1.3.0 cleanup — tighten retention defaults
+                    // + purge Empty Clipping rows. Matches Mac side.
+                    guard !UserDefaults.standard.bool(forKey: "didApplyV130Cleanup") else { return }
+                    UserDefaults.standard.set(500, forKey: "maxHistorySize")
+                    UserDefaults.standard.set(30, forKey: "retentionDays")
+                    UserDefaults.standard.set(30, forKey: "trashRetentionDays")
+                    let ctx = ModelContext(SharedIOSData.container)
+                    clipboardService.purgeEmptyClippings(in: ctx)
+                    UserDefaults.standard.set(true, forKey: "didApplyV130Cleanup")
                 }
         }
         .modelContainer(SharedIOSData.container)

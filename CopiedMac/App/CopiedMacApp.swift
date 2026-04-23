@@ -124,9 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "pasteAndClose": true,
             "cloudSyncEnabled": true,
             "popoverItemCount": 100,
-            "maxHistorySize": 5000,
+            "maxHistorySize": 500,        // was 5000 — tighter default
             "stripURLTrackingParams": true,
-            "retentionDays": -1,
+            "retentionDays": 30,          // was -1 (unlimited) — 30 day default
             "trashRetentionDays": 30,
             "iCloudSyncPurchased": false
         ])
@@ -178,6 +178,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ctx = ModelContext(SharedData.container)
         clipboardService.configure(modelContext: ctx)
         clipboardService.start()
+
+        // One-shot v1.3.0 cleanup: tighten retention defaults across
+        // the board (500 clippings, 30-day age retention, 30-day trash)
+        // and sweep out "Empty Clipping" rows left behind by earlier
+        // capture-path bugs. Gated on a single UserDefaults flag so it
+        // runs exactly once per device. Safe to leave in the code path
+        // forever — once the flag is set, subsequent launches skip.
+        if !UserDefaults.standard.bool(forKey: "didApplyV130Cleanup") {
+            UserDefaults.standard.set(500, forKey: "maxHistorySize")
+            UserDefaults.standard.set(30, forKey: "retentionDays")
+            UserDefaults.standard.set(30, forKey: "trashRetentionDays")
+            clipboardService.purgeEmptyClippings(in: ctx)
+            UserDefaults.standard.set(true, forKey: "didApplyV130Cleanup")
+        }
+
         clipboardService.trimByAge()
         clipboardService.purgeOldTrash()
 
