@@ -183,9 +183,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         syncMonitor.start()
 
+        // CKSyncEngine (iOS 17 / macOS 14+) — replaces NSPCKC automatic
+        // mirroring. Starts only when the user's cloudSync gate is on.
+        // Engine manages its own APNs subscriptions; no extra
+        // `registerForRemoteNotifications` call needed for it.
+        if SharedData.initialCloudSyncEnabled {
+            CopiedSyncEngine.shared.start(modelContainer: SharedData.container)
+        }
+
         // CloudKit continuous sync: register for remote notifications so
         // NSPersistentCloudKitContainer can wake the Mac when iOS modifies
         // a record. The APNs token goes straight to the CloudKit framework.
+        // Still needed during the dual-path transition (Phases 2–6 run the
+        // legacy NSPCKC mirror alongside CKSyncEngine). Phase 7 removes.
         NSApp.registerForRemoteNotifications()
 
         // R-1: App-lifetime remote-change observer. MainWindowView and

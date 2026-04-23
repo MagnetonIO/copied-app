@@ -75,6 +75,16 @@ struct CopiedIOSApp: App {
         DispatchQueue.main.async {
             UIApplication.shared.registerForRemoteNotifications()
         }
+
+        // CKSyncEngine (iOS 17+) — replaces NSPCKC automatic mirroring.
+        // Starts only when the user's cloudSync gate is on. During the
+        // transition phases (2–6), engine runs alongside NSPCKC mirror;
+        // Phase 7 removes NSPCKC and this becomes the sole sync layer.
+        if SharedIOSData.initialCloudSyncEnabled {
+            Task { @MainActor in
+                CopiedSyncEngine.shared.start(modelContainer: SharedIOSData.container)
+            }
+        }
     }
 
     var body: some Scene {
