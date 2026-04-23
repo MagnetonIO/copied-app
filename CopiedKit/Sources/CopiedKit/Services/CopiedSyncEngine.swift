@@ -127,6 +127,50 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 .saveZone(CKRecordZone(zoneID: Self.zoneID))
             ])
         }
+
+        // Phase 6 — clean-start seed migration. On the first launch that
+        // boots CKSyncEngine (either brand-new install or upgrade from
+        // pre-migration Copied), enumerate all local Clipping / ClipList
+        // rows and enqueue each as a pending save. CKSyncEngine will
+        // upload them under the new custom record types on its next
+        // `sendChanges`. Legacy NSPCKC-mirrored `CD_*` records in the old
+        // zone are left alone — they become orphaned cloud garbage and
+        // can be cleaned up via CloudKit Dashboard by the user.
+        if !persisted.didSeedUpload {
+            seedLocalData(container: modelContainer)
+            persisted.didSeedUpload = true
+            persist()
+        }
+    }
+
+    /// One-shot enumeration of local rows → pending CKRecord saves.
+    /// Idempotent because it only runs when `didSeedUpload == false`,
+    /// which is flipped to true as soon as the enqueue finishes.
+    /// The engine itself will coalesce + retry on its normal schedule
+    /// after the enqueue returns.
+    @MainActor
+    private func seedLocalData(container: ModelContainer) {
+        let ctx = ModelContext(container)
+
+        let clippingDesc = FetchDescriptor<Clipping>()
+        if let clippings = try? ctx.fetch(clippingDesc) {
+            for clipping in clippings {
+                engine?.state.add(pendingRecordZoneChanges: [
+                    .saveRecord(Self.clippingRecordID(clipping.clippingID))
+                ])
+            }
+            NSLog("[CopiedSyncEngine] seeded \(clippings.count) clippings for upload")
+        }
+
+        let listDesc = FetchDescriptor<ClipList>()
+        if let lists = try? ctx.fetch(listDesc) {
+            for list in lists {
+                engine?.state.add(pendingRecordZoneChanges: [
+                    .saveRecord(Self.clipListRecordID(list.listID))
+                ])
+            }
+            NSLog("[CopiedSyncEngine] seeded \(lists.count) lists for upload")
+        }
     }
 
     // MARK: - Public API — wired to Sync Now, Resume Monitoring, etc. in Phase 5
