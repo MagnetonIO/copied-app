@@ -179,12 +179,28 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
         let clippingDesc = FetchDescriptor<Clipping>()
         if let clippings = try? ctx.fetch(clippingDesc) {
+            var enqueued = 0
+            var skipped = 0
             for clipping in clippings {
+                // Skip empty-shell clippings (same definition as
+                // `ClipboardService.purgeEmptyClippings` + `Clipping.displayTitle`
+                // fallback): no title / text / url and no image. Uploading
+                // these would just pollute CloudKit with garbage that every
+                // other device would pull down as "Empty Clipping" rows
+                // before their own purge has a chance to run.
+                let textEmpty = (clipping.text ?? "").isEmpty
+                let titleEmpty = (clipping.title ?? "").isEmpty
+                let urlEmpty = (clipping.url ?? "").isEmpty
+                if textEmpty && titleEmpty && urlEmpty && !clipping.hasImage {
+                    skipped += 1
+                    continue
+                }
                 engine?.state.add(pendingRecordZoneChanges: [
                     .saveRecord(Self.clippingRecordID(clipping.clippingID))
                 ])
+                enqueued += 1
             }
-            NSLog("[CopiedSyncEngine] seeded \(clippings.count) clippings for upload")
+            NSLog("[CopiedSyncEngine] seeded \(enqueued) clippings for upload (skipped \(skipped) empty shells)")
         }
 
         let listDesc = FetchDescriptor<ClipList>()
@@ -506,10 +522,29 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     @MainActor
     private func upsertClipping(record: CKRecord, recordName: String, ctx: ModelContext) {
+        // Defense in depth: refuse to create a local row from an empty
+        // CKRecord. If a peer device somehow uploads a shell (pre-purge
+        // seed, half-captured mutation, etc.) we drop it on receive so
+        // it can't repopulate a list we just cleaned. Also enqueue a
+        // .deleteRecord so CloudKit drops the garbage on its next sync.
+        // An existing local row with real content is still updated — the
+        // shell-check only applies to records we'd be inserting fresh.
+        let text = (record["text"] as? String) ?? ""
+        let title = (record["title"] as? String) ?? ""
+        let url = (record["url"] as? String) ?? ""
+        let hasImage = (record["hasImage"] as? Bool) ?? false
+        let isShell = text.isEmpty && title.isEmpty && url.isEmpty && !hasImage
+
         let desc = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { $0.clippingID == recordName }
         )
         let existing = try? ctx.fetch(desc).first
+
+        if isShell, existing == nil {
+            // Don't insert garbage; tell CloudKit to forget this record.
+            engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(record.recordID)])
+            return
+        }
         let incomingModified = record["modifiedDate"] as? Date
 
         if let existing {
