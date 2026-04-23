@@ -386,17 +386,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     // MARK: - Event handlers
 
     private func handleAccountChange(_ event: CKSyncEngine.Event.AccountChange) async {
+        // IMPORTANT: do NOT call `engine.fetchChanges()` / `sendChanges()`
+        // from within this delegate callback — CKSyncEngine asserts
+        // (EXC_BREAKPOINT) if you re-enter it synchronously from its own
+        // event-dispatch path. Use `engine.state.add(pendingDatabaseChanges:)`
+        // or defer outbound work off this stack via `Task.detached`.
+        //
+        // For now, just flip the persisted migration flags so the *next*
+        // cold launch picks up the right seed state. The engine itself
+        // will fetch on its automatic schedule after sign-in.
         switch event.changeType {
         case .signIn:
-            // Fresh account → re-seed local data to the new account's
-            // private DB. Phase 6 migration flag re-runs the seed.
             persisted.didSeedUpload = false
             persist()
-            try? await engine?.fetchChanges()
         case .switchAccounts, .signOut:
-            // Clear engine state so CKSyncEngine forgets its change
-            // tokens tied to the previous account; keep local SwiftData
-            // intact so the user doesn't lose data on sign-out.
             persisted.stateSerialization = nil
             persisted.didSeedUpload = false
             persist()
