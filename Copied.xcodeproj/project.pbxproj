@@ -572,10 +572,10 @@
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
 						SystemCapabilities = {
-						com.apple.ApplicationGroups.iOS = {
+						com.apple.Push = {
 							enabled = 1;
 						};
-						com.apple.Push = {
+						com.apple.ApplicationGroups.iOS = {
 							enabled = 1;
 						};
 						com.apple.iCloud = {

@@ -3,7 +3,14 @@ import Foundation
 import CloudKit
 
 public enum CopiedSchema {
-    public static let containerIdentifier = "iCloud.com.mlong.copied"
+    /// Capitalized "Copied" so iOS Settings → iCloud Storage displays
+    /// the brand-cased label. Must match an iCloud container identifier
+    /// created in the Apple Developer portal and listed in every
+    /// target's `com.apple.developer.icloud-container-identifiers`
+    /// entitlement. Prior identifier `iCloud.com.mlong.copied` is dead
+    /// — any data there is orphaned and can be deleted from the
+    /// portal or iOS Settings.
+    public static let containerIdentifier = "iCloud.com.mlong.Copied"
 
     public static let models: [any PersistentModel.Type] = [
         Clipping.self,
