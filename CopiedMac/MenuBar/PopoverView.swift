@@ -7,6 +7,10 @@ struct PopoverView: View {
     @Environment(ClipboardService.self) private var clipboardService
     @Environment(AppState.self) private var appState
     @Environment(SyncMonitor.self) private var syncMonitor
+    /// App-level singleton that ticks on every CloudKit import. Reading
+    /// `.tick` in the body registers SwiftUI observation so `.onChange`
+    /// fires reliably even inside the NSHostingController-hosted popover.
+    @State private var syncTicker = SyncTicker.shared
 
     @Query(
         filter: #Predicate<Clipping> { $0.deleteDate == nil },
@@ -14,6 +18,17 @@ struct PopoverView: View {
         order: .reverse
     )
     private var allClippings: [Clipping]
+
+    /// Sidebar-style list roster for the popover filter menu.
+    @Query(sort: \ClipList.sortOrder) private var userLists: [ClipList]
+
+    /// Fingerprint for detecting any mutation across the loaded clippings
+    /// (title edits, favorite/pin toggles, list reassignments, CloudKit
+    /// imports). Used by `onChange` to refresh the cached `filtered` array
+    /// when something changes that `allClippings.count` doesn't catch.
+    private var clippingsLastModified: Date {
+        allClippings.reduce(Date.distantPast) { max($0, $1.modifiedDate ?? $1.addDate) }
+    }
 
     @AppStorage("pasteAndClose") private var pasteAndClose = true
 
@@ -52,18 +67,84 @@ struct PopoverView: View {
     @State private var filtered: [Clipping] = []
     @State private var matchRanges: [String: [Range<String.Index>]] = [:]
 
+    /// Coalesces rapid-fire recompute triggers (typing, CloudKit-import
+    /// bursts) into a single trailing-edge recompute. Without this,
+    /// typing "hello" in the search field fires 5 back-to-back O(n)
+    /// filter+score passes; with 300+ clippings that's visible lag.
+    /// Holding the task as @State lets us cancel in-flight scheduled
+    /// work when a new keystroke arrives.
+    @State private var recomputeDebounceTask: Task<Void, Never>?
+
+    /// Coalesces rapid row-appearance events into a single batched
+    /// thumbnail-prefetch pass. A fast scroll can fire dozens of
+    /// `prefetchAdjacentThumbnails(around:)` calls back-to-back; the
+    /// batch window means we spawn one set of detached decode Tasks
+    /// for the settled-on region instead of one per appeared row.
+    @State private var prefetchPendingIndices: Set<Int> = []
+    @State private var prefetchDebounceTask: Task<Void, Never>?
+
+    /// Schedule a trailing-edge debounced recompute. Cancels any
+    /// in-flight scheduled recompute so rapid triggers collapse.
+    private func scheduleRecompute(afterMs: Int) {
+        recomputeDebounceTask?.cancel()
+        recomputeDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(afterMs))
+            guard !Task.isCancelled else { return }
+            recomputeFiltered()
+        }
+    }
+
+    /// Queue a prefetch around `index` for a batched pass ~100 ms later.
+    /// Deduplicates via `prefetchPendingIndices` set so overlapping
+    /// windows from adjacent row-appearances only prefetch each
+    /// clipping once.
+    private func schedulePrefetch(aroundIndex index: Int) {
+        prefetchPendingIndices.insert(index)
+        prefetchDebounceTask?.cancel()
+        prefetchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            let indices = prefetchPendingIndices
+            prefetchPendingIndices.removeAll()
+            for i in indices {
+                prefetchAdjacentThumbnails(around: i)
+            }
+        }
+    }
+
     private func recomputeFiltered() {
-        // Always sort the full `allClippings`. The view caps rendering at
-        // `visibleCount` via `.prefix(visibleCount)` in the ForEach, so
-        // paging never needs a re-sort — scrolling just reveals more of the
-        // already-sorted list. This eliminates the per-page-scroll resort that
-        // was causing mid-scroll jank.
-        let source = Array(allClippings)
+        // Always sort the full set of active clippings. The view caps
+        // rendering at `visibleCount` via `.prefix(visibleCount)` in the
+        // ForEach, so paging never needs a re-sort.
+        //
+        // Create a FRESH ModelContext every recompute to bypass the
+        // NSPersistentCloudKitContainer query-generation pin that traps
+        // the popover on stale data. The popover is pre-warmed as an
+        // NSHostingController at app launch — its environment context
+        // (AND the container's mainContext) get pinned to whatever
+        // generation existed at launch time. CloudKit imports after
+        // launch land in the store but are invisible to those pinned
+        // contexts until something explicitly advances them. Opening
+        // the main window instantiates a *new* scene-scoped context
+        // that starts on the latest generation — hence main window
+        // "sees" iOS-side deletes that the popover doesn't. Making a
+        // new context here on every recompute gives us the same
+        // freshness without requiring the main window to open.
+        var descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.deleteDate == nil }
+        )
+        descriptor.sortBy = [SortDescriptor(\.addDate, order: .reverse)]
+        let freshCtx = ModelContext(SharedData.container)
+        let source = (try? freshCtx.fetch(descriptor)) ?? Array(allClippings)
 
         var result = source.sorted { $0.addDate > $1.addDate }
 
         if let kind = appState.filterKind {
             result = result.filter { $0.contentKind == kind }
+        }
+
+        if let listID = appState.popoverListFilterID {
+            result = result.filter { $0.list?.listID == listID }
         }
 
         var newRanges: [String: [Range<String.Index>]] = [:]
@@ -192,15 +273,27 @@ struct PopoverView: View {
         .onAppear {
             recomputeFiltered()
         }
+        // Best-practice sync nudge: `SyncTicker` is an @Observable app
+        // singleton that subscribes to `NSPersistentStoreRemoteChange`
+        // at AppKit-NotificationCenter level (reliable firing) and
+        // increments `tick` on every CloudKit import. SwiftUI's native
+        // `@Observable` change propagation delivers reliably to views
+        // hosted inside NSHostingController — unlike cross-bridge
+        // `.onReceive(NotificationCenter…)` which is flaky for NSPopover.
+        .onChange(of: syncTicker.tick) { _, _ in
+            // Debounce batch CloudKit imports — N tick bumps in quick
+            // succession collapse to one O(n) recompute instead of N.
+            scheduleRecompute(afterMs: 300)
+        }
         .onChange(of: appState.popoverIsVisible) { _, visible in
             guard visible else { return }
             searchFocused = true
             selectedIndex = 0
             visibleCount = pageSize
             recomputeFiltered()
-            // Defer so SwiftUI has rendered the re-computed `filtered` list
-            // before scrolling. Scrolling synchronously scrolls the stale
-            // list and lands at the wrong row (or no-ops).
+            // Defer scroll so SwiftUI has rendered the re-computed
+            // `filtered` list before scrolling. Scrolling synchronously
+            // against a stale list no-ops or lands at the wrong row.
             DispatchQueue.main.async {
                 guard let first = filtered.first else { return }
                 scrollProxy?.scrollTo(first.clippingID, anchor: .top)
@@ -209,10 +302,23 @@ struct PopoverView: View {
         .onChange(of: appState.filterKind) { _, _ in
             recomputeFiltered()
         }
-        .onChange(of: searchText) { _, _ in
+        .onChange(of: appState.popoverListFilterID) { _, _ in
             recomputeFiltered()
         }
+        .onChange(of: searchText) { _, _ in
+            // Debounce typing — "hello" no longer triggers 5 recomputes.
+            scheduleRecompute(afterMs: 200)
+        }
         .onChange(of: allClippings.count) { _, _ in
+            recomputeFiltered()
+        }
+        // Any edit that mutates `modifiedDate` (title change, pin toggle,
+        // list re-assignment, capture-side updates via `persist()` /
+        // `markUsed()` / CloudKit imports via `NSPersistentStoreRemoteChange`)
+        // bumps this max. Recomputing on the max catches inline edits that
+        // `onChange(of: allClippings.count)` doesn't see. Compute cost is
+        // ~1 pass over the in-memory array — negligible vs the filter work.
+        .onChange(of: clippingsLastModified) { _, _ in
             recomputeFiltered()
         }
         // Note: no onChange(of: visibleCount) — paging is a view-layer concern,
@@ -272,10 +378,51 @@ struct PopoverView: View {
                 .buttonStyle(.plain)
             }
 
+            listFilterMenu
             filterMenu
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// Popover list filter — a folder icon that opens a checkmarked menu
+    /// of user lists. "All Lists" clears the filter. Mirrors the shape of
+    /// `filterMenu` so the two controls read as a pair.
+    private var listFilterMenu: some View {
+        Menu {
+            Button {
+                appState.popoverListFilterID = nil
+            } label: {
+                HStack {
+                    Text("All Lists")
+                    if appState.popoverListFilterID == nil { Image(systemName: "checkmark") }
+                }
+            }
+            if !userLists.isEmpty {
+                Divider()
+                ForEach(userLists) { list in
+                    Button {
+                        appState.popoverListFilterID = list.listID
+                    } label: {
+                        HStack {
+                            Text(list.name)
+                            if appState.popoverListFilterID == list.listID {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: appState.popoverListFilterID != nil
+                  ? "folder.fill"
+                  : "folder")
+                .font(.callout)
+                .foregroundStyle(appState.popoverListFilterID != nil ? .primary : .secondary)
+        }
+        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private var filterMenu: some View {
@@ -364,10 +511,13 @@ struct PopoverView: View {
                                     if canLoadMore, index >= visibleCount - 10 {
                                         visibleCount = min(visibleCount + pageSize, maxVisibleCount)
                                     }
-                                    // Prefetch the next few thumbnails so
-                                    // scroll-back and scroll-forward both hit
-                                    // warm cache instead of re-decoding.
-                                    prefetchAdjacentThumbnails(around: index)
+                                    // Queue the next few thumbnails for a
+                                    // batched prefetch ~100 ms after the last
+                                    // row-appearance settles. Collapses a flood
+                                    // of scroll-driven prefetch calls into one
+                                    // deduped pass (was visibly stuttering on
+                                    // fast image-heavy scroll).
+                                    schedulePrefetch(aroundIndex: index)
                                 }
                                 .onTapGesture(count: 2) { handleDoubleClick(clipping) }
                                 .onTapGesture { selectClipping(at: index) }
@@ -397,7 +547,14 @@ struct PopoverView: View {
                                             }
                                         }
                                     }
-                                    if clipping.contentKind == .link, let urlStr = clipping.url, let url = URL(string: urlStr) {
+                                    if clipping.contentKind == .link,
+                                       let urlStr = clipping.url,
+                                       let url = URL(string: urlStr),
+                                       let scheme = url.scheme?.lowercased(),
+                                       scheme == "http" || scheme == "https" {
+                                        // Restrict to http/https — a crafted clipping
+                                        // containing e.g. `x-apple-reminderkit://…` would
+                                        // otherwise dispatch arbitrary custom URL schemes.
                                         Button("Open Link") {
                                             NSWorkspace.shared.open(url)
                                             StatusBarController.shared.closePopover()
@@ -445,9 +602,11 @@ struct PopoverView: View {
                                     Divider()
                                     Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
                                         clipping.isFavorite.toggle()
+                                        clipping.persist()
                                     }
                                     Button(clipping.isPinned ? "Unpin" : "Pin") {
                                         clipping.isPinned.toggle()
+                                        clipping.persist()
                                     }
                                     Divider()
                                     Button("Delete", role: .destructive) {
@@ -506,7 +665,7 @@ struct PopoverView: View {
                 if isImage {
                     Button("Save") {
                         clipping.title = editText
-                        clipping.modifiedDate = Date()
+                        clipping.persist()
                         editingClipID = nil
                     }
                     .buttonStyle(.borderedProminent)
@@ -514,7 +673,7 @@ struct PopoverView: View {
                 } else {
                     Button("Save") {
                         clipping.text = editText
-                        clipping.modifiedDate = Date()
+                        clipping.persist()
                         editingClipID = nil
                     }
                     .buttonStyle(.bordered)
@@ -721,7 +880,13 @@ struct PopoverView: View {
                 }
                 Divider()
                 Button(clipboardService.isMonitoring ? "Pause Monitoring" : "Resume Monitoring") {
-                    clipboardService.isMonitoring ? clipboardService.stop() : clipboardService.start()
+                    if clipboardService.isMonitoring {
+                        clipboardService.stop()
+                    } else {
+                        clipboardService.start()
+                        // Catch up on anything iOS pushed while we were paused.
+                        syncMonitor.triggerSync()
+                    }
                 }
                 Divider()
                 Button("Sync Now") {
@@ -901,6 +1066,13 @@ struct PopoverView: View {
     /// Warm the thumbnail cache for a few rows around `index` so scroll-back
     /// and scroll-forward both land on cache hits. Fire-and-forget — the cache
     /// returns early if an entry already exists, and failures are silent.
+    ///
+    /// Previously this faulted `clip.imageData` (an `@Attribute(.externalStorage)`
+    /// blob) on the main actor before kicking off the detached decode,
+    /// which caused visible scroll hitches on image-heavy popover views.
+    /// Now we short-circuit on cache hits before touching imageData, and
+    /// fetch the blob inside the detached task via a dedicated ModelContext
+    /// so the main actor never blocks on blob I/O.
     private func prefetchAdjacentThumbnails(around index: Int) {
         let window = 5
         let start = max(0, index - window)
@@ -910,8 +1082,19 @@ struct PopoverView: View {
             let clip = filtered[i]
             guard clip.hasImage else { continue }
             let clippingID = clip.clippingID
-            let data = clip.imageData
+            // Cache-hit short circuit — avoids the external-storage fault
+            // entirely for rows we already have a thumbnail for.
+            if ThumbnailCache.shared.cachedThumbnail(for: clippingID, maxSize: 96) != nil {
+                continue
+            }
+            let container = modelContext.container
             Task.detached(priority: .utility) {
+                let ctx = ModelContext(container)
+                let descriptor = FetchDescriptor<Clipping>(
+                    predicate: #Predicate { $0.clippingID == clippingID }
+                )
+                guard let fetched = try? ctx.fetch(descriptor).first,
+                      let data = fetched.imageData else { return }
                 _ = await ThumbnailCache.shared.decodeThumbnail(for: clippingID, data: data, maxSize: 96)
             }
         }

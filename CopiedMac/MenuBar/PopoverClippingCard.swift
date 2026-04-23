@@ -292,6 +292,7 @@ struct PopoverClippingCard: View {
         HStack(spacing: 6) {
             Button {
                 clipping.isFavorite.toggle()
+                clipping.persist()
             } label: {
                 Image(systemName: clipping.isFavorite ? "star.fill" : "star")
                     .font(.system(size: 13, weight: .medium))

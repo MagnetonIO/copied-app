@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Copied — Clipboard Manager for macOS</title>
+<link rel="stylesheet" href="../../colors_and_type.css">
+<style>
+  body { margin:0; background:#000; color:#f5f5f7; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-font-smoothing: antialiased; }
+  ::selection { background:#0071e3; color:white; }
+</style></head>
+<body>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="MarketingComponents.jsx"></script>
+<script type="text/babel">
+  function App() {
+    return (
+      <main>
+        <Nav/>
+        <Hero/>
+        <Features/>
+        <CodeDemo/>
+        <Shortcuts/>
+        <Download/>
+        <Footer/>
+      </main>
+    );
+  }
+  ReactDOM.createRoot(document.body.appendChild(document.createElement('div'))).render(<App/>);
+</script>
+</body></html>

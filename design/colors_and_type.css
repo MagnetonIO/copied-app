@@ -1,0 +1,138 @@
+/* ─────────────────────────────────────────────────────────
+   Copied Design System — Colors + Type tokens
+   Source: getcopied-app/app/globals.css + CopiedIOS screens
+   ───────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Brand accent (the teal/emerald family) ── */
+  --copied-teal-50:  #ecfdf5;
+  --copied-teal-100: #d1fae5;
+  --copied-teal-200: #a7f3d0;
+  --copied-teal-300: #6ee7b7;   /* emerald-300 */
+  --copied-teal-400: #34d399;   /* emerald-400 — PRIMARY accent on light */
+  --copied-teal-500: #2dd4bf;   /* teal-400 — app icon mid */
+  --copied-teal-600: #14b8a6;   /* teal-500 — app icon base */
+  --copied-teal-700: #0d9488;   /* teal-600 — app icon deep */
+  --copied-teal-800: #115e59;
+
+  /* Signature gradient (logo / marketing heading) */
+  --copied-gradient-brand: linear-gradient(135deg, #34d399 0%, #14b8a6 60%, #0891b2 100%);
+  --copied-gradient-logo:  linear-gradient(135deg, #2dd4bf 0%, #0d9488 100%);
+
+  /* In iOS app the accent renders as this specific teal. */
+  --accent:          #0071e3;           /* web CTA (Apple blue) */
+  --accent-hover:    #0077ed;
+  --accent-ios:      #30B0C7;           /* Apple systemTeal — matches SwiftUI .accentColor default */
+  --accent-ios-press:#24899B;           /* darker for pressed state */
+
+  /* ── Background scale (dark-first) ── */
+  --bg-primary:   #000000;   /* pure black — app + site canvas */
+  --bg-secondary: #111111;   /* section band */
+  --bg-card:      #1a1a1a;   /* card surface */
+  --bg-elevated:  #1f1f1f;   /* sheet / popover */
+  --bg-row-hover: rgba(255,255,255,0.05);
+
+  /* ── Borders + dividers ── */
+  --border:        #333333;
+  --border-hair:   rgba(255,255,255,0.05);
+  --border-soft:   rgba(255,255,255,0.10);
+  --border-strong: rgba(255,255,255,0.20);
+
+  /* ── Text ── */
+  --text-primary:   #f5f5f7;  /* headline white */
+  --text-secondary: #86868b;  /* body muted */
+  --text-tertiary:  #6e6e73;  /* caption */
+  --text-quaternary:#3a3a3d;  /* disabled */
+
+  /* ── Semantic ── */
+  --fg-success: #34d399;
+  --fg-warning: #f59e0b;
+  --fg-danger:  #ff453a;   /* iOS red — Trash label */
+  --fg-info:    #60a5fa;
+
+  /* Content kind accents — from ClippingRow.swift */
+  --kind-code:  #34d399;   /* emerald */
+  --kind-link:  #60a5fa;   /* blue */
+  --kind-text:  #86868b;   /* secondary */
+  --kind-image: #c084fc;   /* purple */
+  --kind-video: #f472b6;
+  --kind-file:  #94a3b8;
+
+  /* Star / pin colors */
+  --fg-star: #fde047;     /* yellow */
+  --fg-pin:  #fb923c;     /* orange */
+
+  /* ── Radii ── */
+  --radius-xs: 4px;    /* kbd */
+  --radius-sm: 6px;    /* settings button */
+  --radius-md: 8px;    /* code block */
+  --radius-lg: 12px;   /* button */
+  --radius-xl: 14px;   /* panel / row group */
+  --radius-2xl: 16px;  /* hero card */
+  --radius-3xl: 22px;  /* app-icon squircle */
+  --radius-pill: 9999px;
+
+  /* ── Spacing ── */
+  --sp-0: 0;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 24px;
+  --sp-10: 32px;
+  --sp-12: 40px;
+  --sp-16: 64px;
+  --sp-20: 96px;
+
+  /* ── Shadows ── */
+  --shadow-card:    0 1px 0 rgba(0,0,0,0.25);
+  --shadow-hero:    0 40px 80px -20px rgba(0,0,0,0.6);
+  --shadow-pop:     0 12px 40px rgba(0,0,0,0.5);
+  --shadow-inner:   inset 0 1px 0 rgba(255,255,255,0.04);
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-ios: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --dur-fast: 120ms;
+  --dur-med:  200ms;
+  --dur-slow: 400ms;
+
+  /* ── Type ── */
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Semantic type — tuned to SF Pro metrics */
+  --t-display-1-size: 72px;  --t-display-1-lh: 1.05;  --t-display-1-w: 700;  --t-display-1-ls: -0.03em;
+  --t-display-2-size: 56px;  --t-display-2-lh: 1.08;  --t-display-2-w: 700;  --t-display-2-ls: -0.025em;
+  --t-h1-size: 40px;         --t-h1-lh: 1.15;         --t-h1-w: 700;         --t-h1-ls: -0.02em;
+  --t-h2-size: 28px;         --t-h2-lh: 1.2;          --t-h2-w: 700;         --t-h2-ls: -0.015em;
+  --t-h3-size: 20px;         --t-h3-lh: 1.3;          --t-h3-w: 600;         --t-h3-ls: -0.01em;
+  --t-lead-size: 20px;       --t-lead-lh: 1.55;       --t-lead-w: 400;
+  --t-body-size: 16px;       --t-body-lh: 1.5;        --t-body-w: 400;
+  --t-small-size: 14px;      --t-small-lh: 1.5;       --t-small-w: 400;
+  --t-caption-size: 12px;    --t-caption-lh: 1.4;     --t-caption-w: 400;
+  --t-micro-size: 10px;      --t-micro-lh: 1.3;       --t-micro-w: 500;
+}
+
+/* ═══════════ Semantic helpers ═══════════ */
+
+html, body { background: var(--bg-primary); color: var(--text-primary);
+  font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+
+h1, .h1 { font: var(--t-h1-w) var(--t-h1-size)/var(--t-h1-lh) var(--font-display); letter-spacing: var(--t-h1-ls); }
+h2, .h2 { font: var(--t-h2-w) var(--t-h2-size)/var(--t-h2-lh) var(--font-display); letter-spacing: var(--t-h2-ls); }
+h3, .h3 { font: var(--t-h3-w) var(--t-h3-size)/var(--t-h3-lh) var(--font-display); letter-spacing: var(--t-h3-ls); }
+.display-1 { font: var(--t-display-1-w) var(--t-display-1-size)/var(--t-display-1-lh) var(--font-display); letter-spacing: var(--t-display-1-ls); }
+.display-2 { font: var(--t-display-2-w) var(--t-display-2-size)/var(--t-display-2-lh) var(--font-display); letter-spacing: var(--t-display-2-ls); }
+.lead     { font: var(--t-lead-w) var(--t-lead-size)/var(--t-lead-lh) var(--font-body); color: var(--text-secondary); }
+p, .body  { font: var(--t-body-w) var(--t-body-size)/var(--t-body-lh) var(--font-body); }
+.small    { font: var(--t-small-w) var(--t-small-size)/var(--t-small-lh) var(--font-body); }
+.caption  { font: var(--t-caption-w) var(--t-caption-size)/var(--t-caption-lh) var(--font-body); color: var(--text-tertiary); }
+.micro    { font: var(--t-micro-w) var(--t-micro-size)/var(--t-micro-lh) var(--font-body); letter-spacing: 0.02em; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+
+.text-brand { background: var(--copied-gradient-brand); -webkit-background-clip: text; background-clip: text; color: transparent; }

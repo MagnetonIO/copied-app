@@ -4,6 +4,7 @@ import SwiftData
 public struct ClippingDetail: View {
     @Bindable var clipping: Clipping
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
 
     public init(clipping: Clipping) {
         self.clipping = clipping
@@ -22,6 +23,13 @@ public struct ClippingDetail: View {
         }
         .toolbar {
             toolbarContent
+        }
+        // Title is edited via a live `TextField` binding — we don't save
+        // on every keystroke (CloudKit rate-limits mutations), but we
+        // must commit when the view disappears so the final value is
+        // durable and propagates to other devices.
+        .onDisappear {
+            clipping.persist()
         }
     }
 
@@ -238,18 +246,27 @@ public struct ClippingDetail: View {
 
             Button {
                 clipping.isFavorite.toggle()
+                clipping.persist()
             } label: {
                 Image(systemName: clipping.isFavorite ? "star.fill" : "star")
             }
 
             Button {
                 clipping.isPinned.toggle()
+                clipping.persist()
             } label: {
                 Image(systemName: clipping.isPinned ? "pin.fill" : "pin")
             }
 
             Button(role: .destructive) {
+                // Set deleteDate, persist the change, and pop the detail
+                // view so the user returns to the list and sees the row
+                // removed. Without dismiss() the navigation stack would
+                // leave them staring at a trashed clipping with no
+                // visible change.
                 clipping.moveToTrash()
+                try? modelContext.save()
+                dismiss()
             } label: {
                 Image(systemName: "trash")
             }

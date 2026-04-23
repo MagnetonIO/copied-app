@@ -49,12 +49,33 @@ case "$target" in
   paid-license-test)
     bundle exec fastlane mac paid_license_test_build
     ;;
+  ios)
+    # Unsigned Simulator build of CopiedIOS → build/ios-sim/Copied.app.
+    # Install and launch via scripts/ios-sim.sh run.
+    bundle exec fastlane ios dev_build
+    ;;
+  ios-archive)
+    # Signed iOS archive for App Store Distribution → build/ios/Copied.ipa.
+    # Requires App Store Connect API key + provisioning profile configured.
+    ./scripts/bump-build.sh
+    bundle exec fastlane ios archive
+    ;;
+  ios-testflight)
+    # Always bump + re-archive before upload — Apple rejects duplicate
+    # CFBundleVersion, and a stale IPA would silently upload the wrong bits.
+    ./scripts/bump-build.sh
+    bundle exec fastlane ios archive
+    bundle exec fastlane ios testflight
+    ;;
   *)
-    echo "Usage: $0 {oss|paid-license|paid-mas} [--open|-o]"
+    echo "Usage: $0 {oss|paid-license|paid-mas|ios|ios-archive|ios-testflight} [--open|-o]"
     echo ""
-    echo "  oss           build/oss/Copied-OSS-vX.Y.Z.pkg          — unlocked local install (auto-opens Installer)"
-    echo "  paid-license  build/license/Copied-License-vX.Y.Z.pkg  — Stripe-backed license, direct-download (website + GitHub)"
-    echo "  paid-mas      build/mas/Copied.pkg                     — Mac App Store submission (auto-bumps CFBundleVersion)"
+    echo "  oss             build/oss/Copied-OSS-vX.Y.Z.pkg          — unlocked local install (auto-opens Installer)"
+    echo "  paid-license    build/license/Copied-License-vX.Y.Z.pkg  — Stripe-backed license, direct-download"
+    echo "  paid-mas        build/mas/Copied.pkg                     — Mac App Store submission (auto-bumps CFBundleVersion)"
+    echo "  ios             build/ios-sim/Copied.app                 — unsigned iOS Simulator build (for dev + agent testing)"
+    echo "  ios-archive     build/ios/Copied.ipa                     — signed App Store archive (auto-bumps CFBundleVersion)"
+    echo "  ios-testflight                                          — archive + upload to TestFlight (auto-bumps)"
     echo ""
     echo "  --open, -o    also open Installer after build (for paid-mas / paid-license local testing)"
     exit 1

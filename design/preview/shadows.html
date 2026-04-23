@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:24px; background:#000; color:#f5f5f7; font-family:var(--font-body); }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .card { background:#1a1a1a; border:1px solid rgba(255,255,255,0.05); border-radius:16px; padding:18px; min-height:84px; }
+  .label { font-size:11px; color:#86868b; font-family:var(--font-mono); display:block; margin-top:8px; }
+  .name { font-weight:600; font-size:13px; }
+</style></head><body>
+<div class="grid">
+  <div class="card" style="box-shadow:none"><div class="name">flat card</div><span class="label">0 · hero feature</span></div>
+  <div class="card" style="box-shadow:0 1px 0 rgba(0,0,0,.25)"><div class="name">kbd lift</div><span class="label">0 1px 0 rgba(0,0,0,.25)</span></div>
+  <div class="card" style="box-shadow:0 40px 80px -20px rgba(0,0,0,.6)"><div class="name">hero · 2xl</div><span class="label">shadow-2xl black/50</span></div>
+  <div class="card" style="box-shadow:0 12px 40px rgba(0,0,0,.5)"><div class="name">popover</div><span class="label">0 12 40 black/50</span></div>
+  <div class="card" style="background:rgba(0,0,0,0.7); backdrop-filter:blur(20px); border-color:rgba(255,255,255,0.05)"><div class="name">nav blur</div><span class="label">bg-black/70 · blur-xl</span></div>
+  <div class="card" style="background:rgba(26,26,26,0.85); backdrop-filter:blur(20px); border-color:rgba(255,255,255,0.08)"><div class="name">iOS material</div><span class="label">regularMaterial</span></div>
+</div>
+</body></html>

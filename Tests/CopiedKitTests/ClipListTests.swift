@@ -37,7 +37,7 @@ struct ClipListTests {
 
         let fetchedList = try ctx.fetch(FetchDescriptor<ClipList>()).first
         #expect(fetchedList?.clippingCount == 1)
-        #expect(fetchedList?.clippings.first?.text == "interesting finding")
+        #expect(fetchedList?.clippings?.first?.text == "interesting finding")
     }
 
     @Test("Nullify clipping relationship on list delete")

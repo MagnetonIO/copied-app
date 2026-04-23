@@ -4,6 +4,7 @@ import CopiedKit
 struct ClippingEditSheet: View {
     @Bindable var clipping: Clipping
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var editedText: String = ""
     @State private var editedTitle: String = ""
 
@@ -32,6 +33,9 @@ struct ClippingEditSheet: View {
                     clipping.title = editedTitle.isEmpty ? nil : editedTitle
                     clipping.text = editedText
                     clipping.modifiedDate = Date()
+                    // Explicit save — autosave is periodic and CloudKit
+                    // mirror only pushes on save commits.
+                    try? modelContext.save()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

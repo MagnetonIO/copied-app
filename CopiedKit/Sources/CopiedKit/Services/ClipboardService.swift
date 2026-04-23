@@ -62,6 +62,12 @@ public final class ClipboardService {
 
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount: Int = 0
+    #if canImport(UIKit) && !canImport(AppKit)
+    /// Block-observer token from `NotificationCenter.addObserver(forName:…)`.
+    /// We keep it so `stop()` can unregister — `removeObserver(self, …)` does
+    /// not remove block-based observers.
+    private var pasteboardObserverToken: NSObjectProtocol?
+    #endif
     /// Set to true before writing to pasteboard, cleared after poll skips the self-write
     public var skipNextCapture: Bool = false
     private var modelContext: ModelContext?
@@ -164,6 +170,24 @@ public final class ClipboardService {
                 await self?.poll()
             }
         }
+        #elseif canImport(UIKit)
+        // iOS has no background clipboard polling — the OS suspends apps and
+        // throttles pasteboard reads. Strategy: capture on `.changedNotification`
+        // whenever we're foregrounded, and on `ScenePhase.active` transition
+        // via `checkForPasteboardChanges()`. Seed `lastChangeCount = -1` so the
+        // first scene-phase-active check sees a different value and actually
+        // captures the current pasteboard (whatever the user copied before
+        // launching us).
+        lastChangeCount = -1
+        isMonitoring = true
+
+        pasteboardObserverToken = NotificationCenter.default.addObserver(
+            forName: UIPasteboard.changedNotification,
+            object: UIPasteboard.general,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.checkForPasteboardChanges() }
+        }
         #endif
     }
 
@@ -171,7 +195,32 @@ public final class ClipboardService {
         pollingTask?.cancel()
         pollingTask = nil
         isMonitoring = false
+        #if canImport(UIKit) && !canImport(AppKit)
+        if let token = pasteboardObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            pasteboardObserverToken = nil
+        }
+        #endif
     }
+
+    #if canImport(UIKit) && !canImport(AppKit)
+    /// iOS-only poll. Compares the current `UIPasteboard.changeCount` to the
+    /// last seen; captures only on a genuine change. Used by the notification
+    /// observer and by the app on `ScenePhase.active` (the OS doesn't fire
+    /// `.changedNotification` for a change that happened while we were in the
+    /// background).
+    @MainActor
+    public func checkForPasteboardChanges() {
+        let cc = UIPasteboard.general.changeCount
+        guard cc != lastChangeCount else { return }
+        lastChangeCount = cc
+        if skipNextCapture {
+            skipNextCapture = false
+            return
+        }
+        captureFromUIPasteboard()
+    }
+    #endif
 
     // MARK: - Manual Save
 
@@ -182,6 +231,21 @@ public final class ClipboardService {
         captureFromUIPasteboard()
         #endif
     }
+
+    #if canImport(UIKit) && !canImport(AppKit)
+    /// iOS-only: write `items` to `UIPasteboard.general` and record the
+    /// resulting `changeCount` so the very next foreground check / observer
+    /// fire won't re-capture what we just wrote. Callers should use this
+    /// instead of `UIPasteboard.general.setItems(...)` + toggling
+    /// `skipNextCapture` — the old flag-based approach leaves the flag armed
+    /// if no notification fires (e.g. user copies elsewhere first), causing
+    /// the next legitimate capture to be silently dropped.
+    @MainActor
+    public func writeToPasteboard(_ items: [[String: Any]]) {
+        UIPasteboard.general.setItems(items, options: [:])
+        lastChangeCount = UIPasteboard.general.changeCount
+    }
+    #endif
 
     // MARK: - macOS Polling
 
@@ -606,6 +670,13 @@ public final class ClipboardService {
             clipping.imageData = data
             clipping.imageWidth = Double(image.size.width)
             clipping.imageHeight = Double(image.size.height)
+            // `hasImage` drives `Clipping.contentKind` (→ `.image`) and the
+            // image-dedup window in `isDuplicateOfLast`. `imageByteCount` is
+            // the fast dedup key; `imageFormat` tells the Mac renderer how to
+            // decode. All three must be set together.
+            clipping.hasImage = true
+            clipping.imageByteCount = data.count
+            clipping.imageFormat = "png"
             didCapture = true
         }
 
@@ -615,6 +686,27 @@ public final class ClipboardService {
 
         // Dedup check
         if !allowDuplicates && isDuplicateOfLast(clipping) { return }
+
+        // Evaluate user-defined automation rules BEFORE the insert. A rule
+        // can veto the save entirely (.skip), flag the clipping as favorite,
+        // or route it to a custom ClipList — each stacks on top of the
+        // prior defaults. See `RuleEngine.evaluate` for ordering semantics.
+        let outcome = RuleEngine.evaluate(
+            text: clipping.text,
+            url: clipping.url,
+            imageData: clipping.imageData
+        )
+        guard outcome.shouldSave else { return }
+        if outcome.markFavorite { clipping.isFavorite = true }
+        if let listID = outcome.routeToListID {
+            var descriptor = FetchDescriptor<ClipList>(
+                predicate: #Predicate<ClipList> { $0.listID == listID }
+            )
+            descriptor.fetchLimit = 1
+            if let list = try? modelContext.fetch(descriptor).first {
+                clipping.list = list
+            }
+        }
 
         modelContext.insert(clipping)
         try? modelContext.save()
@@ -717,6 +809,42 @@ public final class ClipboardService {
         }
 
         return false
+    }
+
+    /// R-3 cleanup: one-shot pass that finds all active clippings with the
+    /// same content hash and moves all but the earliest (by addDate) to
+    /// Trash. Returns the number of duplicates trashed. Intended for the
+    /// user-visible "Remove Duplicates" Settings action.
+    ///
+    /// Runs on the main actor; we batch mutations and save once at the
+    /// end rather than letting each `moveToTrash()` save individually,
+    /// which would trigger a CloudKit export per row and stall the UI.
+    @MainActor
+    public static func removeDuplicates(in context: ModelContext) -> Int {
+        var descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate { $0.deleteDate == nil }
+        )
+        descriptor.sortBy = [SortDescriptor(\.addDate, order: .forward)]
+        guard let active = try? context.fetch(descriptor) else { return 0 }
+
+        var seen: Set<String> = []
+        var removed = 0
+        for clip in active {
+            let hash = clip.contentHash()
+            if seen.contains(hash) {
+                // Set deleteDate directly to skip the per-row save() in
+                // moveToTrash(); we batch one save at the end.
+                clip.deleteDate = Date()
+                clip.modifiedDate = Date()
+                removed += 1
+            } else {
+                seen.insert(hash)
+            }
+        }
+        if removed > 0 {
+            try? context.save()
+        }
+        return removed
     }
 
     private func enforceHistoryLimit() {

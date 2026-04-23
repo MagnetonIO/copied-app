@@ -13,6 +13,11 @@ public enum LicenseValidator {
     /// Regenerate both halves together; private half is gitignored under `.keys/`.
     static let publicKeyHex = "47cbf96653e629edc20829ec4eb3c83e3f01fd52035b728c1d0d73e328e65b3a"
 
+    /// The only product this app treats as an iCloud Sync unlock. A license
+    /// signed by the same Ed25519 key but for a different product (future
+    /// SKUs, or a typo on the issuing side) must NOT unlock this feature.
+    public static let expectedProduct = "icloud_sync"
+
     public struct LicensePayload: Codable, Sendable {
         public let product: String
         public let email: String
@@ -24,6 +29,9 @@ public enum LicenseValidator {
         case malformed
         case badSignature
         case badPayload
+        /// Signature verified, payload decoded, but `product` is for a
+        /// different SKU than this app's unlock feature.
+        case wrongProduct
     }
 
     public static func verify(license: String) throws -> LicensePayload {
@@ -40,11 +48,16 @@ public enum LicenseValidator {
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        let payload: LicensePayload
         do {
-            return try decoder.decode(LicensePayload.self, from: payloadData)
+            payload = try decoder.decode(LicensePayload.self, from: payloadData)
         } catch {
             throw VerifyError.badPayload
         }
+        guard payload.product == expectedProduct else {
+            throw VerifyError.wrongProduct
+        }
+        return payload
     }
 }
 

@@ -173,7 +173,7 @@ struct SettingsView: View {
             Toggle("Copy and close popover", isOn: $pasteAndClose)
                 .tint(.accentColor)
 
-            Section("History") {
+            Section {
                 Picker("Max history size", selection: $maxHistorySize) {
                     Text("500").tag(500)
                     Text("1,000").tag(1000)
@@ -213,11 +213,42 @@ struct SettingsView: View {
                         emptyTrash()
                     }
                 }
+
+                LabeledContent("Duplicates") {
+                    HStack(spacing: 8) {
+                        if let msg = dedupResultMessage {
+                            Text(msg)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Remove Duplicates") {
+                            presentsDedupConfirm = true
+                        }
+                    }
+                }
+            } header: {
+                Text("History")
+            } footer: {
+                Text("Remove Duplicates scans your history for clippings with identical content and moves all but the earliest copy to Trash.")
             }
         }
         .formStyle(.grouped)
         .padding()
+        .confirmationDialog("Remove duplicates?", isPresented: $presentsDedupConfirm) {
+            Button("Scan & Move Duplicates to Trash", role: .destructive) {
+                let removed = ClipboardService.removeDuplicates(in: modelContext)
+                dedupResultMessage = removed == 0
+                    ? "No duplicates found"
+                    : "Moved \(removed) to Trash"
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Clippings with identical content will be moved to Trash. The earliest copy of each is kept.")
+        }
     }
+
+    @State private var presentsDedupConfirm = false
+    @State private var dedupResultMessage: String?
 
     // MARK: - Clipboard
 
@@ -338,6 +369,33 @@ struct SettingsView: View {
 
     private var syncTab: some View {
         Form {
+            // R-2 HIGH-1: if the cloudSync gate has changed mid-session
+            // (mid-session IAP unlock, license paste, toggle flip) the
+            // ModelContainer is stale and writes still go to a local-only
+            // store. Banner prompts a relaunch with a one-click Quit.
+            if SharedData.requiresRelaunchForSync {
+                Section {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Restart required")
+                                .font(.headline)
+                            Text("iCloud Sync unlocked. Quit and reopen Copied so new clippings start syncing to iCloud.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Button("Quit Copied") {
+                                NSApp.terminate(nil)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
             Section {
                 // In MAS builds the toggle is force-displayed OFF and disabled until the
                 // IAP is purchased. This avoids the confusing "toggle ON but Sync is
@@ -549,12 +607,21 @@ struct SettingsView: View {
 
     private var appVersion: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         #if MAS_BUILD
         let variant = "Paid"
         #else
         let variant = "OSS"
         #endif
-        return "\(short) (\(variant))"
+        // `#if DEBUG` is a compile-time flag — Release binaries don't even
+        // carry the "Debug" string. Lets users tell at a glance whether
+        // they're running the optimized build or a dev build.
+        #if DEBUG
+        let config = " · Debug"
+        #else
+        let config = " · Release"
+        #endif
+        return "\(short) (\(build)) · \(variant)\(config)"
     }
 
     private var aboutTab: some View {

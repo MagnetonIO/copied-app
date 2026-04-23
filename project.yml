@@ -8,6 +8,13 @@ options:
   generateEmptyDirectories: true
   groupSortPosition: top
 
+# Without an explicit SystemCapabilities block here, Xcode's
+# ProcessEntitlementsFile step silently strips the `aps-environment`
+# entitlement from the signed binary — even though the .entitlements
+# file declares it and the provisioning profile grants it. Each target
+# that needs Push Notifications (for CloudKit silent push or otherwise)
+# or iCloud must have the capability toggled here.
+
 packages:
   CopiedKit:
     path: CopiedKit
@@ -32,10 +39,28 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "15.0"
+    # SystemCapabilities tells Xcode's ProcessEntitlementsFile step that
+    # these capabilities are enabled so it stops stripping the matching
+    # entitlement keys (notably `aps-environment`) from the signed binary.
+    # Without this, Push Notifications + CloudKit entries in the
+    # .entitlements file silently fail to reach the final app bundle.
+    attributes:
+      SystemCapabilities:
+        com.apple.Push:
+          enabled: 1
+        com.apple.iCloud:
+          enabled: 1
     sources:
       - CopiedMac
     dependencies:
       - package: CopiedKit
+      # Explicit CloudKit link — without this, Swift auto-link does not
+      # propagate CloudKit from the statically-linked CopiedKit SwiftPM
+      # module into the final Mac binary. NSPersistentCloudKitContainer
+      # then runs half-initialized and iOS→Mac sync fails silently on
+      # dev builds. Verified empirically: `otool -L Copied | grep
+      # CloudKit` came back empty before this line was added.
+      - sdk: CloudKit.framework
     info:
       path: CopiedMac/Info.plist
       properties:
@@ -72,13 +97,28 @@ targets:
         #   paid_license_build   → SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD LICENSE_STRIPE'
         #   mas_build            → SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD MAS_STOREFRONT'
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
+        # Release default = production APS. Debug overridden below.
+        APS_ENVIRONMENT: production
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
+          # Debug builds use development APS so running via Xcode against a
+          # dev provisioning profile doesn't request production-scoped push
+          # entitlements the profile can't authorize.
+          APS_ENVIRONMENT: development
     entitlements:
       path: CopiedMac/CopiedMac.entitlements
       properties:
         com.apple.security.app-sandbox: false
+        # `$(APS_ENVIRONMENT)` is substituted at entitlement-processing time
+        # by the build setting of the same name — development in Debug,
+        # production in Release. This makes the APS channel match the
+        # CloudKit environment, which SwiftData's `.private(...)` pins to
+        # **Production** regardless of build config. Mismatched APS +
+        # CloudKit environments drop silent pushes silently, which caused
+        # deletes/adds from iOS to never import on the Mac (observed in
+        # cloudd / CoreData+CloudKit logs).
+        com.apple.developer.aps-environment: $(APS_ENVIRONMENT)
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.mlong.copied
         com.apple.developer.icloud-services:
@@ -95,29 +135,223 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
+    attributes:
+      SystemCapabilities:
+        com.apple.Push:
+          enabled: 1
+        com.apple.iCloud:
+          enabled: 1
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     sources:
       - CopiedIOS
     dependencies:
       - package: CopiedKit
+      # Explicit CloudKit link — defensive (iOS usually auto-links it,
+      # but matching CopiedMac's explicit dependency keeps both targets
+      # honest and avoids the Release-vs-Debug inconsistency seen on Mac).
+      - sdk: CloudKit.framework
+      - target: CopiedShareExtension
+        embed: true
+        codeSign: true
+      - target: CopiedClipperExtension
+        embed: true
+        codeSign: true
+    info:
+      path: CopiedIOS/Info.plist
+      properties:
+        CFBundleDisplayName: Copied
+        # Version strings are substituted from MARKETING_VERSION /
+        # CURRENT_PROJECT_VERSION in settings.base at build time — single
+        # source of truth. scripts/bump-build.sh bumps those.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        # CloudKit continuous sync requires silent pushes. Without
+        # `remote-notification`, NSPersistentCloudKitContainer only pulls
+        # on foreground — you see an initial dump from iCloud, then every
+        # subsequent change (esp. deletes) never propagates until the next
+        # cold launch. Apple's sample CoreData+CloudKit apps all ship this.
+        UIBackgroundModes:
+          # remote-notification wakes the app for CloudKit silent pushes.
+          # fetch grants occasional background runtime so large CKAsset
+          # payloads (images, rich text, file bookmarks) can finish
+          # downloading — without it, metadata arrives but the binary
+          # blob fetch never gets enough time to complete in background.
+          - remote-notification
+          - fetch
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied
         PRODUCT_NAME: Copied
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-        INFOPLIST_KEY_UILaunchScreen_Generation: true
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        GENERATE_INFOPLIST_FILE: true
-        INFOPLIST_KEY_CFBundleDisplayName: Copied
+        # iOS targets sign under the developer's personal iOS team, which
+        # differs from the 7727LYTG96 team used by the Mac distribution
+        # variants. Override the base value locally per-target.
         CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Wire the host Assets.xcassets (generated 1024×1024 AppIcon — Xcode
+        # synthesizes all iOS resolutions). Without this the home-screen and
+        # share-row fall back to iOS's generic white-circle placeholder.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Same gating as CopiedMac MAS build: paywall UI + real StoreKit.
+        # iOS only ships through the App Store — no OSS or LICENSE_STRIPE variant.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
+        APS_ENVIRONMENT: production
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
+          APS_ENVIRONMENT: development
     entitlements:
       path: CopiedIOS/CopiedIOS.entitlements
       properties:
-        aps-environment: development
+        # `$(APS_ENVIRONMENT)` substituted at build time from the build
+        # setting — production in Release (matches the Production CloudKit
+        # environment SwiftData uses), development in Debug. SwiftData's
+        # `.private(containerIdentifier)` always targets Production
+        # CloudKit; a mismatched APS entitlement causes silent pushes to
+        # be delivered on the wrong APNs channel and never reach the app.
+        aps-environment: $(APS_ENVIRONMENT)
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.mlong.copied
         com.apple.developer.icloud-services:
           - CloudKit
+        # App Group lets the Share Extension write into the same SwiftData
+        # store the host app reads. Group id matches the Mac prefix so a
+        # future cross-platform extension can share the same keyspace.
+        com.apple.security.application-groups:
+          - group.com.mlong.copied
+    scheme:
+      # Same StoreKit config as CopiedMac so Simulator can simulate the IAP
+      # without requiring the App Store Connect product to exist.
+      storeKitConfiguration: Copied.storekit
+
+  # ──────────────────────────────────────────
+  # iOS Share Extension — "Save to Copied"
+  # ──────────────────────────────────────────
+  CopiedShareExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - CopiedShareExtension
+    dependencies:
+      - package: CopiedKit
+      - sdk: UniformTypeIdentifiers.framework
+    info:
+      path: CopiedShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Save to Copied
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # Scoped to the clipboard-manager paradigm: text snippets,
+            # links, and small images. Dropped SupportsFile so "Save to
+            # Copied" no longer appears on Files-app PDFs / Mail attachments
+            # where saving to a clipboard history is not useful.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 5
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.ShareExtension
+        PRODUCT_NAME: CopiedShareExtension
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        CODE_SIGN_ENTITLEMENTS: CopiedShareExtension/CopiedShareExtension.entitlements
+        SWIFT_EMIT_LOC_STRINGS: true
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Dedicated AppIcon for the share row — without this iOS falls
+        # back to a generic placeholder in the share sheet.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
+    entitlements:
+      path: CopiedShareExtension/CopiedShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.mlong.copied
+
+  # ──────────────────────────────────────────
+  # iOS Clipper Action Extension — "Copied Clipper"
+  # Safari-scoped action. ClipperPreprocess.js runs in the page context,
+  # captures document.title / window.location.href / window.getSelection()
+  # and passes them to native via NSExtensionJavaScriptPreprocessingResultsKey.
+  # The compose UI then saves a source:.clipper PendingClipping via the
+  # same App Group inbox drain as "Save to Copied".
+  # ──────────────────────────────────────────
+  CopiedClipperExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - CopiedClipperExtension
+    dependencies:
+      - package: CopiedKit
+      - sdk: UniformTypeIdentifiers.framework
+    info:
+      path: CopiedClipperExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Copied Clipper
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Per Apple HIG: action extensions use a monochrome template image
+        # (alpha-masked, no fills) rather than an AppIcon. iOS renders it
+        # inside its own chrome tile. We ship ActionIcon.imageset with
+        # template-rendering-intent; iOS picks it up via asset catalog
+        # resolution without needing CFBundleIcons wiring.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ui-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ClipperActionViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              # Safari path — JS preprocessing runs in the page, so we get
+              # title + URL + user's selection.
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+              # Non-Safari path — Chrome / Firefox / Google Search /
+              # Messages / Mail share URLs via a public.url NSItemProvider.
+              # This activation key gets Clipper into their share sheets.
+              # Controller loadPreprocessResults() handles URL-only fallback.
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+            NSExtensionJavaScriptPreprocessingFile: ClipperPreprocess
+            NSExtensionPointVersion: "1.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.ClipperAction
+        PRODUCT_NAME: CopiedClipperExtension
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        CODE_SIGN_ENTITLEMENTS: CopiedClipperExtension/CopiedClipperExtension.entitlements
+        SWIFT_EMIT_LOC_STRINGS: true
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
+    entitlements:
+      path: CopiedClipperExtension/CopiedClipperExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.mlong.copied
 
   # ──────────────────────────────────────────
   # Tests

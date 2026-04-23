@@ -82,18 +82,13 @@ public final class SyncMonitor {
         }
         observers.append(eventObserver)
 
-        // Also listen for remote store changes (data actually arriving)
-        let remoteChangeObserver = NotificationCenter.default.addObserver(
-            forName: .NSPersistentStoreRemoteChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.importCount += 1
-                self?.status = .synced(Date())
-            }
-        }
-        observers.append(remoteChangeObserver)
+        // NOTE: intentionally do NOT observe `.NSPersistentStoreRemoteChange`
+        // here. That notification fires on any coordinator change — including
+        // local saves we trigger ourselves via `mirrorPoke` — which would
+        // falsely bump `importCount` and flip status to `.synced`. The only
+        // authoritative "iOS data arrived" signal is the `.import` event in
+        // `eventChangedNotification`, handled above. `SyncTicker` has its own
+        // remote-change observer for UI refresh; we don't duplicate it here.
 
         // Periodic account check
         accountCheckTask = Task { [weak self] in
@@ -115,14 +110,20 @@ public final class SyncMonitor {
 
     private func handleCloudKitEvent(type: Int, succeeded: Bool, endDate: Date?, error: NSError?) {
         // type: 0 = setup, 1 = import, 2 = export
+        //
+        // Only `.import` with `succeeded == true` updates status to
+        // `.synced(date)` — that's the sole event that means "iOS data
+        // actually arrived in the local store." Setup and export success
+        // fall back to `.available` ("iCloud On") so the label never lies
+        // with a stale "Synced Xm ago" when nothing inbound happened.
         switch type {
         case 0: // setup
             if succeeded {
-                status = .synced(endDate ?? Date())
+                status = .available
             } else {
                 status = .syncing(direction: "Setting up…")
             }
-        case 1: // import (remote → local)
+        case 1: // import (remote → local) — the only honest "synced" path
             if succeeded {
                 importCount += 1
                 status = .synced(endDate ?? Date())
@@ -132,7 +133,9 @@ public final class SyncMonitor {
         case 2: // export (local → remote)
             if succeeded {
                 exportCount += 1
-                status = .synced(endDate ?? Date())
+                if case .syncing = status {
+                    status = .available
+                }
             } else if endDate == nil {
                 status = .syncing(direction: "Exporting…")
             }
@@ -184,18 +187,51 @@ public final class SyncMonitor {
         }
     }
 
+    /// User-triggered / event-driven sync. Debounced — if a sync is
+    /// already in-flight this is a no-op. Currently issues a raw
+    /// `CKFetchRecordZoneChangesOperation` for reachability + status;
+    /// the Phase 2 CKSyncEngine migration replaces this entirely with
+    /// `CopiedSyncEngine.shared.syncNow()`.
     public func triggerSync() {
+        if case .syncing = status { return }
         status = .syncing(direction: "Syncing…")
+        runRawZoneFetch()
+    }
+
+    private func runRawZoneFetch() {
         let container = CKContainer(identifier: containerIdentifier)
-        container.fetchUserRecordID { [weak self] _, error in
+        let db = container.privateCloudDatabase
+        let zoneID = CKRecordZone.ID(
+            zoneName: "com.apple.coredata.cloudkit.zone",
+            ownerName: CKCurrentUserDefaultName
+        )
+        let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        let op = CKFetchRecordZoneChangesOperation(
+            recordZoneIDs: [zoneID],
+            configurationsByRecordZoneID: [zoneID: config]
+        )
+        op.qualityOfService = .userInitiated
+
+        op.fetchRecordZoneChangesResultBlock = { [weak self] result in
             Task { @MainActor [weak self] in
-                if let error {
-                    self?.status = .error(String(error.localizedDescription.prefix(40)))
-                } else {
-                    try? await Task.sleep(for: .seconds(3))
-                    self?.status = .synced(Date())
+                guard let self else { return }
+                if case .failure(let err) = result {
+                    self.status = .error(String(err.localizedDescription.prefix(60)))
+                    return
                 }
+                // Give the mirror ~1.5s to drain any imports our poke
+                // kicked loose. A real `.import` event will have already
+                // flipped status to `.synced(date)` via handleCloudKitEvent;
+                // if not, fall back to `.available` rather than claim a
+                // sync that didn't happen.
+                try? await Task.sleep(for: .milliseconds(1500))
+                if case .syncing = self.status {
+                    self.status = .available
+                }
+                SyncTicker.shared.bump()
             }
         }
+
+        db.add(op)
     }
 }

@@ -1,12 +1,12 @@
-#if MAS_BUILD
 import Foundation
 import StoreKit
 import Observation
 
 /// Wraps StoreKit 2 for the single non-consumable iCloud Sync unlock.
-/// Compiled into MAS builds only (see SWIFT_ACTIVE_COMPILATION_CONDITIONS=MAS_BUILD
-/// in fastlane/Fastfile mas_build/mas_debug_build lanes). The OSS/Developer-ID build
-/// doesn't link StoreKit — CloudKit is always on there.
+/// Shared between Mac (MAS variant) and iOS. StoreKit is a system framework on
+/// both platforms, so linking it unconditionally has no cost. The OSS / License
+/// Mac variants just don't reference `PurchaseManager.shared` — callers gate
+/// usage with `#if MAS_STOREFRONT` in `CopiedMacApp` / `SettingsView`.
 @Observable
 @MainActor
 public final class PurchaseManager {
@@ -171,4 +171,3 @@ public final class PurchaseManager {
 public enum PurchaseError: Error {
     case unverified
 }
-#endif

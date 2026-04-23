@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Copied · iOS UI kit</title>
+<link rel="stylesheet" href="../../colors_and_type.css">
+<style>
+  body { margin:0; background:#0a0a0a; color:#f5f5f7; font-family:var(--font-body); min-height:100vh; display:flex; gap:24px; align-items:center; justify-content:center; padding:32px; flex-wrap:wrap; }
+  .phone { width:390px; height:844px; background:#000; border-radius:54px; border:1px solid #222; box-shadow:0 30px 80px rgba(0,0,0,.6); overflow:hidden; position:relative; }
+  .statusbar { display:flex; justify-content:space-between; align-items:center; padding:14px 30px 8px; font-size:15px; font-weight:600; color:#f5f5f7; }
+  .screen { position:absolute; inset:44px 0 0 0; display:flex; flex-direction:column; }
+  .label { position:absolute; top:-28px; left:0; font-size:12px; color:#6e6e73; font-family:var(--font-mono); }
+  .wrap { position:relative; }
+  .notch { position:absolute; top:11px; left:50%; transform:translateX(-50%); width:120px; height:34px; background:#000; border-radius:20px; z-index:50; }
+</style></head>
+<body>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="ClippingRow.jsx"></script>
+<script type="text/babel" src="IOSScreens.jsx"></script>
+<script type="text/babel">
+  function StatusBar() {
+    return (
+      <div className="statusbar">
+        <span>11:13</span>
+        <span style={{display:'flex',gap:6,alignItems:'center',fontSize:13}}>
+          <svg width="18" height="11" viewBox="0 0 19 12"><rect x="0" y="7.5" width="3.2" height="4.5" rx="0.7" fill="#fff"/><rect x="4.8" y="5" width="3.2" height="7" rx="0.7" fill="#fff"/><rect x="9.6" y="2.5" width="3.2" height="9.5" rx="0.7" fill="#fff"/><rect x="14.4" y="0" width="3.2" height="12" rx="0.7" fill="#fff"/></svg>
+          <svg width="16" height="11" viewBox="0 0 17 12" fill="#fff"><path d="M8.5 3C5.5 3 2.9 4 1 5.7l1.4 1.6C4 6 6.2 5.2 8.5 5.2S13 6 14.6 7.3L16 5.7C14.1 4 11.5 3 8.5 3z"/><path d="M8.5 7c-1.7 0-3.3.6-4.5 1.6l4.5 3.2L13 8.6c-1.2-1-2.8-1.6-4.5-1.6z"/></svg>
+          <span style={{display:'inline-flex',border:'1px solid rgba(255,255,255,0.4)',borderRadius:3,padding:'1px 3px',fontSize:9,fontWeight:700}}>74</span>
+        </span>
+      </div>
+    );
+  }
+
+  function Phone({label, children, scene, setScene}) {
+    return (
+      <div className="wrap">
+        <div className="label">{label}</div>
+        <div className="phone">
+          <div className="notch"/>
+          <StatusBar/>
+          <div className="screen">{children}</div>
+        </div>
+      </div>
+    );
+  }
+
+  function App() {
+    const [scene, setScene] = React.useState(() => localStorage.getItem('copied_scene') || 'list');
+    React.useEffect(() => localStorage.setItem('copied_scene', scene), [scene]);
+    const [showSheet, setShowSheet] = React.useState(false);
+
+    return (
+      <>
+        <Phone label="① List · Clippings">
+          <ListScreen onActions={() => setShowSheet(true)}/>
+          {showSheet && <ActionSheet onClose={() => setShowSheet(false)}/>}
+        </Phone>
+        <Phone label="② Sidebar">
+          <SidebarScreen/>
+        </Phone>
+        <Phone label="③ Settings">
+          <SettingsScreen/>
+        </Phone>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.body.appendChild(document.createElement('div'))).render(<App/>);
+</script>
+</body></html>

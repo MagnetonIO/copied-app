@@ -7,12 +7,33 @@ struct MainWindowView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
     @Environment(AppState.self) private var appState
+    @Environment(SyncMonitor.self) private var syncMonitor
 
     @Query(sort: \ClipList.sortOrder) private var lists: [ClipList]
+
+    // Sidebar counts — mirror the trailing-gray-count treatment used on
+    // each user list row so All Clippings, Favorites, and Trash read the
+    // same way. Three separate @Query predicates keep SwiftData's
+    // observability narrow (no need to refetch the full Clipping array
+    // just to count).
+    @Query(filter: #Predicate<Clipping> { $0.deleteDate == nil })
+    private var activeClippings: [Clipping]
+    @Query(filter: #Predicate<Clipping> { $0.deleteDate == nil && $0.isFavorite })
+    private var favoriteClippings: [Clipping]
+    @Query(filter: #Predicate<Clipping> { $0.deleteDate != nil })
+    private var trashedClippings: [Clipping]
 
     @State private var selectedClipping: Clipping?
     @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    /// Sidebar list management state. We reuse the same "name draft" for
+    /// both create and rename flows — only one alert is visible at a time.
+    @State private var isNamingNewList = false
+    @State private var newListNameDraft = ""
+    @State private var renamingList: ClipList?
+    @State private var pendingDeleteList: ClipList?
+    @State private var hoveringListsHeader = false
 
     var body: some View {
         @Bindable var state = appState
@@ -42,6 +63,12 @@ struct MainWindowView: View {
             if !appState.searchText.isEmpty && searchText.isEmpty {
                 searchText = appState.searchText
             }
+            // Restore "sync on open" behavior: explicitly hit CloudKit +
+            // bump SyncTicker so every view observing `.tick` refreshes
+            // against the latest local store state. Same pathway as the
+            // Sync Now button, invoked automatically whenever the main
+            // window first appears (or is re-opened after a close).
+            syncMonitor.triggerSync()
         }
         .onChange(of: appState.searchText) { _, newValue in
             if newValue != searchText {
@@ -56,17 +83,17 @@ struct MainWindowView: View {
         @Bindable var state = appState
         return List(selection: $state.sidebarSelection) {
             Section("Library") {
-                Label("All Clippings", systemImage: "tray.full")
+                sidebarRow(title: "All Clippings", systemImage: "tray.full", count: activeClippings.count)
                     .tag(SidebarItem.all)
 
-                Label("Favorites", systemImage: "star")
+                sidebarRow(title: "Favorites", systemImage: "star", count: favoriteClippings.count)
                     .tag(SidebarItem.favorites)
 
-                Label("Trash", systemImage: "trash")
+                sidebarRow(title: "Trash", systemImage: "trash", count: trashedClippings.count)
                     .tag(SidebarItem.trash)
             }
 
-            Section("Lists") {
+            Section {
                 ForEach(lists) { list in
                     HStack {
                         Circle()
@@ -79,19 +106,117 @@ struct MainWindowView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .tag(SidebarItem.list(list))
+                    .contextMenu {
+                        Button("Rename") {
+                            newListNameDraft = list.name
+                            renamingList = list
+                        }
+                        Button("Delete", role: .destructive) {
+                            if list.clippingCount == 0 {
+                                list.deleteTrashingClippings(in: modelContext)
+                            } else {
+                                pendingDeleteList = list
+                            }
+                        }
+                    }
+                }
+            } header: {
+                // Phase 18 — Lists header with trailing "+" button so New
+                // List is one click away from the sidebar. `.onHover` makes
+                // the plus pop on hover as a secondary affordance.
+                HStack(spacing: 4) {
+                    Text("Lists")
+                    Spacer()
+                    Button {
+                        newListNameDraft = ""
+                        isNamingNewList = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .foregroundStyle(hoveringListsHeader ? Color.accentColor : .secondary)
+                            .help("New List")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .contentShape(Rectangle())
+                .onHover { hoveringListsHeader = $0 }
+                .contextMenu {
+                    Button("New List…") {
+                        newListNameDraft = ""
+                        isNamingNewList = true
+                    }
                 }
             }
         }
         .listStyle(.sidebar)
         .navigationTitle("Copied")
+        // Right-click anywhere in the sidebar (outside a list row) raises
+        // the New List prompt. Row-specific context menus (Rename / Delete)
+        // intercept the click first because they're declared on the row.
+        .contextMenu {
+            Button("New List…") {
+                newListNameDraft = ""
+                isNamingNewList = true
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    createList()
+                    newListNameDraft = ""
+                    isNamingNewList = true
                 } label: {
-                    Image(systemName: "folder.badge.plus")
+                    // Label (not bare Image) so View → Customize Toolbar's
+                    // "Icon and Text" mode has a string to render. `.help`
+                    // adds the hover tooltip users expect on Mac toolbars.
+                    Label("New List", systemImage: "folder.badge.plus")
                 }
+                .help("New List")
             }
+        }
+        .alert("New List", isPresented: $isNamingNewList) {
+            TextField("List name", text: $newListNameDraft)
+            Button("Create") { createList(named: newListNameDraft) }
+                .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Give your list a name — you can rename it later.")
+        }
+        .alert(
+            "Rename List",
+            isPresented: Binding(
+                get: { renamingList != nil },
+                set: { if !$0 { renamingList = nil } }
+            ),
+            presenting: renamingList
+        ) { list in
+            TextField("List name", text: $newListNameDraft)
+            Button("Save") {
+                let trimmed = newListNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    list.name = trimmed
+                    list.modifiedDate = Date()
+                    try? modelContext.save()
+                }
+                renamingList = nil
+            }
+            .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) { renamingList = nil }
+        }
+        .confirmationDialog(
+            pendingDeleteList.map { "Delete “\($0.name)”?" } ?? "Delete list?",
+            isPresented: Binding(
+                get: { pendingDeleteList != nil },
+                set: { if !$0 { pendingDeleteList = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteList
+        ) { list in
+            Button("Move \(list.clippingCount) to Trash & Delete", role: .destructive) {
+                list.deleteTrashingClippings(in: modelContext)
+                pendingDeleteList = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDeleteList = nil }
+        } message: { list in
+            Text("The \(list.clippingCount) clipping\(list.clippingCount == 1 ? "" : "s") in this list will move to Trash — recoverable from the Trash section.")
         }
     }
 
@@ -132,10 +257,30 @@ struct MainWindowView: View {
         }
     }
 
-    private func createList() {
-        let list = ClipList(name: "New List")
+    /// Library-row layout matching the Lists rows: leading icon + title
+    /// with a trailing muted count. The `Label` we were using before
+    /// didn't reserve trailing space, so counts looked off-balance next
+    /// to the ClipList rows.
+    @ViewBuilder
+    private func sidebarRow(title: String, systemImage: String, count: Int) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func createList(named rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let list = ClipList(name: name)
         list.sortOrder = lists.count
         modelContext.insert(list)
+        try? modelContext.save()
     }
 }
 
@@ -300,7 +445,10 @@ private struct TrashClippingsList: View {
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .onDeleteCommand {
-            if let sel = selectedClipping { modelContext.delete(sel) }
+            if let sel = selectedClipping {
+                modelContext.delete(sel)
+                try? modelContext.save()
+            }
         }
         .background {
             permanentDeleteShortcut(selected: selectedClipping, modelContext: modelContext)
@@ -311,6 +459,7 @@ private struct TrashClippingsList: View {
                     for clip in clippings {
                         modelContext.delete(clip)
                     }
+                    try? modelContext.save()
                 }
                 .disabled(clippings.isEmpty)
             }
@@ -452,20 +601,24 @@ private func clippingContextMenuContent(
     Divider()
     Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
         clipping.isFavorite.toggle()
+        clipping.persist()
     }
     Button(clipping.isPinned ? "Unpin" : "Pin") {
         clipping.isPinned.toggle()
+        clipping.persist()
     }
     Divider()
     if inTrash {
         Button("Restore") { clipping.restore() }
         Button("Delete Permanently", role: .destructive) {
             modelContext.delete(clipping)
+            try? modelContext.save()
         }
     } else {
         Button("Move to Trash", role: .destructive) { clipping.moveToTrash() }
         Button("Delete Permanently", role: .destructive) {
             modelContext.delete(clipping)
+            try? modelContext.save()
         }
     }
 }
@@ -479,7 +632,10 @@ private func permanentDeleteShortcut(
     modelContext: ModelContext
 ) -> some View {
     Button("") {
-        if let sel = selected { modelContext.delete(sel) }
+        if let sel = selected {
+            modelContext.delete(sel)
+            try? modelContext.save()
+        }
     }
     .keyboardShortcut(.delete, modifiers: .control)
     .frame(width: 0, height: 0)

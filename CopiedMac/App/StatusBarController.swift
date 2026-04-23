@@ -93,7 +93,14 @@ final class StatusBarController: NSObject, NSPopoverDelegate, NSMenuDelegate {
         }
     }
 
-    /// Attaches a fresh SwiftUI view to the popover (created on demand to avoid idle CPU).
+    /// Attaches the pre-warmed SwiftUI view to the popover. Pre-warming
+    /// keeps popover open snappy (~instant) at the cost of the view tree
+    /// persisting across opens. The query-generation staleness we saw
+    /// earlier was actually an APS/CloudKit-environment mismatch (silent
+    /// pushes landing on the wrong APNs channel), not a view-layer issue.
+    /// With aps-environment=production matching the CloudKit Production
+    /// database, imports now arrive and the pre-warmed popover reflects
+    /// them via SyncTicker → recomputeFiltered.
     private func attachContentIfNeeded() {
         if popover.contentViewController == nil, let factory = contentFactory {
             popover.contentViewController = NSHostingController(rootView: factory())

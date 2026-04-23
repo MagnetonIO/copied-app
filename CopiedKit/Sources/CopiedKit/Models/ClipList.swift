@@ -28,4 +28,17 @@ public final class ClipList {
 
 extension ClipList {
     public var clippingCount: Int { clippings?.count ?? 0 }
+
+    /// Soft-delete every clipping in the list, then delete the list itself.
+    /// Called from both iOS (swipe-trailing) and Mac (context menu) so the
+    /// semantics stay identical: users recover items from Trash, not from
+    /// a phantom "deleted list" sidebar.
+    @MainActor
+    public func deleteTrashingClippings(in context: ModelContext) {
+        for clipping in clippings ?? [] {
+            clipping.moveToTrash()
+        }
+        context.delete(self)
+        try? context.save()
+    }
 }

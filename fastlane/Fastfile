@@ -642,3 +642,104 @@ platform :mac do
     install_provisioning_profile(path: "ci_profile.provisionprofile")
   end
 end
+
+platform :ios do
+  desc "Unsigned iOS Simulator build of CopiedIOS → build/ios-sim/Copied.app"
+  lane :dev_build do
+    repo = File.expand_path("..", __dir__)
+    sh("mkdir -p '#{repo}/build/ios-sim'")
+
+    # Regenerate the Xcode project in case project.yml changed.
+    sh("cd '#{repo}' && xcodegen generate")
+
+    UI.header("xcodebuild — iOS Simulator (ad-hoc signed so entitlements ship)")
+    derived = "#{repo}/build/ios-sim/DerivedData"
+    # Ad-hoc sign (CODE_SIGN_IDENTITY="-") rather than CODE_SIGNING_ALLOWED=NO,
+    # because the latter skips the entire entitlements step — which silently
+    # breaks App Groups and App Extension communication on the Simulator.
+    sh(%(cd '#{repo}' && xcodebuild \
+      -project Copied.xcodeproj \
+      -scheme CopiedIOS \
+      -configuration Debug \
+      -destination 'generic/platform=iOS Simulator' \
+      -derivedDataPath '#{derived}' \
+      CODE_SIGN_IDENTITY="-" \
+      CODE_SIGN_STYLE=Manual \
+      DEVELOPMENT_TEAM="" \
+      CODE_SIGNING_REQUIRED=NO \
+      build | tail -20))
+
+    built_app = "#{derived}/Build/Products/Debug-iphonesimulator/Copied.app"
+    UI.user_error!("iOS Simulator build failed — no app at #{built_app}") unless File.directory?(built_app)
+
+    sh("rm -rf '#{repo}/build/ios-sim/Copied.app' && cp -R '#{built_app}' '#{repo}/build/ios-sim/Copied.app'")
+    UI.success("iOS Simulator build: build/ios-sim/Copied.app")
+    UI.message("Install + launch: ./scripts/ios-sim.sh run")
+  end
+
+  desc "Signed App Store archive → build/ios/Copied.ipa"
+  lane :archive do
+    repo = File.expand_path("..", __dir__)
+    sh("mkdir -p '#{repo}/build/ios'")
+    sh("cd '#{repo}' && xcodegen generate")
+
+    UI.header("Archiving CopiedIOS with Apple Distribution signing")
+    archive_path = "build/ios/Copied.xcarchive"
+    sh(%(cd '#{repo}' && xcodebuild \
+      -project Copied.xcodeproj \
+      -scheme CopiedIOS \
+      -configuration Release \
+      -destination 'generic/platform=iOS' \
+      -archivePath '#{archive_path}' \
+      DEVELOPMENT_TEAM=7727LYTG96 \
+      CODE_SIGN_STYLE=Automatic \
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS='MAS_BUILD MAS_STOREFRONT' \
+      -allowProvisioningUpdates \
+      archive | tail -40))
+
+    UI.header("Exporting .ipa for App Store")
+    export_plist = "build/ios/ExportOptions.plist"
+    File.write("#{repo}/#{export_plist}", <<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+          <key>method</key><string>app-store</string>
+          <key>signingStyle</key><string>automatic</string>
+          <key>teamID</key><string>7727LYTG96</string>
+      </dict>
+      </plist>
+    PLIST
+
+    sh(%(cd '#{repo}' && xcodebuild -exportArchive \
+      -archivePath '#{archive_path}' \
+      -exportPath build/ios \
+      -exportOptionsPlist '#{export_plist}' \
+      -allowProvisioningUpdates | tail -10))
+
+    ipa_path = "build/ios/Copied.ipa"
+    UI.user_error!("iOS archive failed — no .ipa at #{ipa_path}") unless File.exist?("#{repo}/#{ipa_path}")
+    UI.success("iOS archive: #{ipa_path}")
+  end
+
+  desc "Upload existing build/ios/Copied.ipa to TestFlight (no auto-submit)"
+  lane :testflight do
+    # Does not re-archive: the caller (scripts/build.sh ios-testflight) is
+    # responsible for running `bump-build.sh` then `archive` so the IPA here
+    # always reflects the current build number. Caching the archive and
+    # silently uploading stale bits is the wrong default.
+    ipa = "build/ios/Copied.ipa"
+    UI.user_error!("No IPA at #{ipa} — run `fastlane ios archive` (or `./scripts/build.sh ios-testflight`) first") unless File.exist?("../#{ipa}")
+
+    key = asc_api_key
+    UI.user_error!("Missing App Store Connect API key — set APP_STORE_CONNECT_API_KEY_ID/_ISSUER_ID/_PATH in .env") unless key
+
+    upload_to_testflight(
+      api_key: key,
+      ipa: ipa,
+      skip_submission: true,
+      skip_waiting_for_build_processing: true
+    )
+    UI.success("Uploaded to TestFlight. Check App Store Connect for processing status.")
+  end
+end

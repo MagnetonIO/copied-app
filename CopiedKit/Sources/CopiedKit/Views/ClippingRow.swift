@@ -115,12 +115,16 @@ public struct ClippingRow: View {
     }
 
     private func cachedImage() -> Image? {
+        guard clipping.imageData != nil else { return nil }
+        let image = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 32)
+        // `thumbnail` returns an empty PlatformImage on decode failure so the
+        // caller can distinguish "no data" from "bad data" — both surface as
+        // nil to the view layer, which falls through to the kind-icon.
+        guard image.size != .zero else { return nil }
         #if canImport(AppKit)
-        let nsImage = ThumbnailCache.shared.thumbnail(for: clipping.clippingID, data: clipping.imageData, maxSize: 32)
-        return Image(nsImage: nsImage)
+        return Image(nsImage: image)
         #elseif canImport(UIKit)
-        guard let data = clipping.imageData, let uiImage = UIImage(data: data) else { return nil }
-        return Image(uiImage: uiImage)
+        return Image(uiImage: image)
         #endif
     }
 }

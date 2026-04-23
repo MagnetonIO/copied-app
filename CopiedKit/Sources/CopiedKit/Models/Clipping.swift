@@ -1,5 +1,6 @@
 import SwiftData
 import Foundation
+import CryptoKit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -121,11 +122,27 @@ extension Clipping {
     public func moveToTrash() {
         deleteDate = Date()
         modifiedDate = Date()
+        // SwiftData's default autosave is periodic (few seconds), and
+        // NSPersistentCloudKitContainer only pushes to CloudKit when a
+        // save commits. Forcing the save here means every callsite that
+        // trashes a clipping (row swipe, detail toolbar, Mac context
+        // menu, etc.) gets cross-device propagation without remembering
+        // to call save manually.
+        try? modelContext?.save()
     }
 
     public func restore() {
         deleteDate = nil
         modifiedDate = Date()
+        try? modelContext?.save()
+    }
+
+    /// Flush any pending property mutations (favorite, pin, title, etc.)
+    /// out through SwiftData + CloudKit immediately. Same rationale as
+    /// the save inside `moveToTrash`.
+    public func persist() {
+        modifiedDate = Date()
+        try? modelContext?.save()
     }
 
     public func markUsed() {
@@ -133,6 +150,10 @@ extension Clipping {
         lastUsedDate = now
         copiedDate = now
         addDate = now  // Update addDate so @Query sort puts copied items at top
+        // Same rationale as moveToTrash/restore/persist — commit the
+        // change so CloudKit mirror pushes lastUsedDate/addDate to other
+        // devices. Without this the MRU ordering is per-device local.
+        try? modelContext?.save()
     }
 
     #if canImport(AppKit)
@@ -140,6 +161,27 @@ extension Clipping {
         types.contains(NSPasteboard.PasteboardType.rtfd.rawValue) ? .rtfd : .rtf
     }
     #endif
+
+    // MARK: - Content fingerprint (for dedup)
+
+    /// SHA-256 of the canonical content payload. Deterministic across
+    /// devices — same text / url / image produces the same hex digest
+    /// on iOS and Mac. Used by `ClipboardService` capture-path dedup
+    /// and the one-shot "Remove Duplicates" cleanup. Excludes metadata
+    /// fields like timestamps, device name, favorite state — only the
+    /// content that defines "same clipping".
+    public func contentHash() -> String {
+        var hasher = SHA256()
+        hasher.update(data: Data(contentKind.rawValue.utf8))
+        hasher.update(data: Data("\0".utf8))
+        if let t = text { hasher.update(data: Data(t.utf8)) }
+        hasher.update(data: Data("\0".utf8))
+        if let u = url { hasher.update(data: Data(u.utf8)) }
+        hasher.update(data: Data("\0".utf8))
+        if let d = imageData { hasher.update(data: d) }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 // MARK: - Static Relative Date (avoids SwiftUI's Text(date, style: .relative) constant re-render)

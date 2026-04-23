@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background:#000; color:#f5f5f7; font-family:var(--font-body); }
+  .grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; }
+  .row { border-radius:12px; padding:14px; min-height:86px; background:#1a1a1a; border:1px solid var(--border-hair); display:flex; flex-direction:column; gap:10px; justify-content:space-between; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:9999px; font-size:10px; width:max-content; }
+  .dot { width:10px; height:10px; border-radius:9999px; }
+  .n { font-size:11px; font-weight:500; }
+  .h { font-family:var(--font-mono); font-size:10px; opacity:.7; }
+</style></head><body>
+<div class="grid">
+  <div class="row"><span class="n" style="color:#34d399">Code</span>
+    <span class="chip" style="background:rgba(52,211,153,.10);color:#34d399"><span class="dot" style="background:#34d399"></span>Swift</span>
+    <span class="h">#34d399</span></div>
+  <div class="row"><span class="n" style="color:#60a5fa">Link</span>
+    <span class="chip" style="background:rgba(96,165,250,.10);color:#60a5fa"><span class="dot" style="background:#60a5fa"></span>URL</span>
+    <span class="h">#60a5fa</span></div>
+  <div class="row"><span class="n" style="color:#c084fc">Image</span>
+    <span class="chip" style="background:rgba(192,132,252,.10);color:#c084fc"><span class="dot" style="background:#c084fc"></span>PNG</span>
+    <span class="h">#c084fc</span></div>
+  <div class="row"><span class="n" style="color:#f472b6">Video</span>
+    <span class="chip" style="background:rgba(244,114,182,.10);color:#f472b6"><span class="dot" style="background:#f472b6"></span>MP4</span>
+    <span class="h">#f472b6</span></div>
+
+  <div class="row"><span class="n" style="color:#fde047">Star · favorite</span>
+    <span class="h">#fde047</span></div>
+  <div class="row"><span class="n" style="color:#fb923c">Pin</span>
+    <span class="h">#fb923c</span></div>
+  <div class="row"><span class="n" style="color:#ff453a">Danger · Trash</span>
+    <span class="h">#ff453a</span></div>
+  <div class="row"><span class="n" style="color:#0071e3">Web CTA (Apple blue)</span>
+    <span class="h">#0071e3</span></div>
+</div>
+</body></html>

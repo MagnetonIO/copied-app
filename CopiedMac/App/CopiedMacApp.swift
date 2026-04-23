@@ -5,18 +5,31 @@ import CopiedKit
 /// Shared container — single instance used by both popover and window.
 enum SharedData {
     @MainActor
-    static let container: ModelContainer = {
+    static let initialCloudSyncEnabled: Bool = computeCloudSyncEnabled()
+
+    @MainActor
+    private static func computeCloudSyncEnabled() -> Bool {
         let userToggle = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
         #if MAS_BUILD
-        // App Store build: sync also gated behind the non-consumable IAP. We read the
-        // cached flag synchronously here; PurchaseManager re-verifies asynchronously
-        // after launch and prompts a restart on mismatch.
         let purchased = UserDefaults.standard.bool(forKey: "iCloudSyncPurchased")
-        let cloudSyncEnabled = userToggle && purchased
+        return userToggle && purchased
         #else
-        let cloudSyncEnabled = userToggle
+        return userToggle
         #endif
-        // Try with CloudKit first, fall back to local-only if schema migration fails
+    }
+
+    /// True when cloudSync gate state has drifted from what the container
+    /// was built with — meaning a mid-session unlock happened and writes
+    /// are still going to a local-only store. SettingsView surfaces this
+    /// as a banner with a Quit button so the user can restart cleanly.
+    @MainActor
+    static var requiresRelaunchForSync: Bool {
+        computeCloudSyncEnabled() != initialCloudSyncEnabled
+    }
+
+    @MainActor
+    static let container: ModelContainer = {
+        let cloudSyncEnabled = initialCloudSyncEnabled
         do {
             return try CopiedSchema.makeContainer(cloudSync: cloudSyncEnabled)
         } catch {
@@ -44,6 +57,14 @@ struct CopiedMacApp: App {
                 .environment(appDelegate.syncMonitor)
                 .onOpenURL { url in
                     handleIncomingURL(url)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)) { _ in
+                    // CloudKit just imported changes from iOS. Force the
+                    // main context to process them so @Query observers
+                    // re-evaluate their predicates — without this, a
+                    // clipping that iOS marked `deleteDate = now` still
+                    // appears in the Mac main list until the app relaunches.
+                    SharedData.container.mainContext.processPendingChanges()
                 }
         }
         .modelContainer(SharedData.container)
@@ -115,11 +136,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = AppDelegate._registerDefaults
         return ClipboardService()
     }()
+
+    /// App-lifetime observer for `NSPersistentStoreRemoteChange`. See
+    /// `applicationDidFinishLaunching` for the wiring.
+    private var remoteChangeObserver: NSObjectProtocol?
     let pasteQueue = PasteQueueService()
     let appState = AppState()
     let syncMonitor = SyncMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Force-init the SyncTicker singleton before any view/model work so
+        // its `.import` / remote-change observers are wired from t=0. Without
+        // this, imports that fire during launch (or before the first popover
+        // open instantiates `SyncTicker.shared` lazily) are missed and the
+        // UI stays stale.
+        _ = SyncTicker.shared
+
         // One-time fix: the old init code had a bug that set captureImages=false
         // in UserDefaults even though the user never toggled it. Reset to true
         // for users affected by this bug (key "didFixCaptureImagesDefault").
@@ -148,7 +180,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardService.start()
         clipboardService.trimByAge()
         clipboardService.purgeOldTrash()
+
         syncMonitor.start()
+
+        // CloudKit continuous sync: register for remote notifications so
+        // NSPersistentCloudKitContainer can wake the Mac when iOS modifies
+        // a record. The APNs token goes straight to the CloudKit framework.
+        NSApp.registerForRemoteNotifications()
+
+        // R-1: App-lifetime remote-change observer. MainWindowView and
+        // PopoverView each have their own observers, but those only fire
+        // once their view is mounted. This one fires regardless of which
+        // UI (if any) is showing — so the main-actor context always
+        // merges imported CloudKit changes as they arrive. Token is held
+        // in the AppDelegate so the observer outlives window lifecycles.
+        remoteChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSPersistentStoreRemoteChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                SharedData.container.mainContext.processPendingChanges()
+            }
+        }
 
         #if MAS_STOREFRONT
         // Start the Transaction.updates listener early so Ask-to-Buy approvals,
@@ -225,6 +279,12 @@ final class AppState {
     var selectedClipping: Clipping?
     var searchText: String = ""
     var filterKind: ContentKind?
+    /// Popover list filter — when non-nil, the popover only shows
+    /// clippings assigned to this `ClipList.listID`. The main window
+    /// uses `sidebarSelection` for the same purpose; keeping them
+    /// separate lets a user filter the popover without disturbing
+    /// sidebar state.
+    var popoverListFilterID: String?
     var popoverIsVisible: Bool = false
     var sidebarSelection: SidebarItem = .all
     var excludedBundleIDs: Set<String> = {
