@@ -7,11 +7,24 @@ import AppKit
 
 @Model
 public final class Clipping {
-    // BUG-05 fix: add indexes for common query patterns
-    #Index<Clipping>([\.addDate], [\.deleteDate], [\.isFavorite, \.deleteDate], [\.listIndex])
+    // BUG-05 fix: add indexes for common query patterns. Added
+    // `contentHash` to support cross-device dedup: every capture
+    // computes a SHA-256 of the content payload; any subsequent
+    // capture (local or from CKSyncEngine) with a matching hash merges
+    // into the existing row instead of creating a duplicate. Think
+    // git-commit-SHA as content identity.
+    #Index<Clipping>([\.addDate], [\.deleteDate], [\.isFavorite, \.deleteDate], [\.listIndex], [\.contentHash])
 
     // Identity
     public var clippingID: String = UUID().uuidString
+
+    /// SHA-256 fingerprint of the content payload (text + url + image
+    /// bytes). Computed once at capture time via `computeContentHash()`
+    /// and stored forever. Empty string for pre-migration rows; a
+    /// one-shot backfill on next launch populates them.
+    /// Used by ClipboardService.finalizeCapture + CopiedSyncEngine
+    /// upsertClipping as the secondary identity key for dedup.
+    public var contentHash: String = ""
 
     // Content
     public var text: String?
@@ -203,13 +216,12 @@ extension Clipping {
 
     // MARK: - Content fingerprint (for dedup)
 
-    /// SHA-256 of the canonical content payload. Deterministic across
-    /// devices — same text / url / image produces the same hex digest
-    /// on iOS and Mac. Used by `ClipboardService` capture-path dedup
-    /// and the one-shot "Remove Duplicates" cleanup. Excludes metadata
-    /// fields like timestamps, device name, favorite state — only the
-    /// content that defines "same clipping".
-    public func contentHash() -> String {
+    /// Compute the SHA-256 fingerprint of the current content. Called
+    /// once at capture time and stored on `contentHash`. Deterministic
+    /// across devices — same `(contentKind, text, url, imageData)`
+    /// produces the same hex digest on iOS and Mac. Excludes metadata
+    /// like timestamps, device name, or favorite state (content-only).
+    public func computeContentHash() -> String {
         var hasher = SHA256()
         hasher.update(data: Data(contentKind.rawValue.utf8))
         hasher.update(data: Data("\0".utf8))
@@ -220,6 +232,15 @@ extension Clipping {
         if let d = imageData { hasher.update(data: d) }
         let digest = hasher.finalize()
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Populate the stored `contentHash` if it's empty (pre-migration
+    /// row, or a row we just created without setting it). Called
+    /// lazily by dedup-time lookups. No-op if already set.
+    public func ensureContentHash() {
+        if contentHash.isEmpty {
+            contentHash = computeContentHash()
+        }
     }
 }
 

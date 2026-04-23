@@ -23,6 +23,7 @@ public enum CKRecordMapper {
     // MARK: - Field name constants (keep in sync with model properties)
 
     private enum Field {
+        static let contentHash = "contentHash"
         static let text = "text"
         static let title = "title"
         static let url = "url"
@@ -96,6 +97,7 @@ public enum CKRecordMapper {
     /// metadata (parent, encryption, etc.) is preserved. CKSyncEngine
     /// recommends this pattern.
     public static func populate(_ record: CKRecord, from clipping: Clipping) {
+        record[Field.contentHash] = clipping.contentHash as NSString
         record[Field.text] = clipping.text as NSString?
         record[Field.title] = clipping.title as NSString?
         record[Field.url] = clipping.url as NSString?
@@ -166,6 +168,7 @@ public enum CKRecordMapper {
     /// `modifiedDate`) before invoking — this method unconditionally
     /// overwrites every field.
     public static func apply(_ record: CKRecord, to clipping: Clipping) {
+        clipping.contentHash = (record[Field.contentHash] as? String) ?? clipping.contentHash
         clipping.text = record[Field.text] as? String
         clipping.title = record[Field.title] as? String
         clipping.url = record[Field.url] as? String

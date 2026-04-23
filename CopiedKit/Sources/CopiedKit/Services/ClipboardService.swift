@@ -464,10 +464,42 @@ public final class ClipboardService {
             clipping.detectedLanguage = detection.language
         }
 
-        // Known edge (not fixed): if two finalizeCapture runs of identical content arrive
-        // before the first has saved, both can pass dedup. Polling is 500 ms so in practice
-        // only reachable via saveCurrentClipboard bursts.
-        if !allowDuplicates && isDuplicateOfLast(clipping) { return }
+        // Compute the SHA-256 content fingerprint — used for both
+        // capture-time dedup (below) and cross-device dedup (in
+        // CKSyncEngine upsertClipping). Same content → same hash on
+        // every device, making it the secondary identity key.
+        clipping.contentHash = clipping.computeContentHash()
+
+        // Content-hash dedup: if any existing active clipping has the
+        // same hash, merge instead of inserting. "Copying COPY a
+        // hundred times" collapses to a single row that keeps getting
+        // its MRU timestamps bumped. Respects `allowDuplicates` — when
+        // user opts in, every capture creates a distinct row.
+        if !allowDuplicates {
+            let hash = clipping.contentHash
+            if !hash.isEmpty {
+                let dupeDesc = FetchDescriptor<Clipping>(
+                    predicate: #Predicate<Clipping> {
+                        $0.deleteDate == nil && $0.contentHash == hash
+                    }
+                )
+                if let existing = try? modelContext.fetch(dupeDesc).first {
+                    let now = Date()
+                    existing.lastUsedDate = now
+                    existing.copiedDate = now
+                    existing.addDate = now
+                    existing.modifiedDate = now
+                    try? modelContext.save()
+                    CopiedSyncEngine.shared.enqueueChange(
+                        recordID: CopiedSyncEngine.clippingRecordID(existing.clippingID)
+                    )
+                    lastCapturedDate = now
+                    return
+                }
+            }
+            // Legacy fallback for pre-hash rows still in the store.
+            if isDuplicateOfLast(clipping) { return }
+        }
 
         clipping.appName = input.appName
         clipping.appBundleID = input.appBundleID
@@ -895,7 +927,8 @@ public final class ClipboardService {
         var seen: Set<String> = []
         var removed = 0
         for clip in active {
-            let hash = clip.contentHash()
+            clip.ensureContentHash()
+            let hash = clip.contentHash
             if seen.contains(hash) {
                 // Set deleteDate directly to skip the per-row save() in
                 // moveToTrash(); we batch one save at the end.

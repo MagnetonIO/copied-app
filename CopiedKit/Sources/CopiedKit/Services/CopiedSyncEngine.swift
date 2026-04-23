@@ -199,6 +199,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
         let clippingDesc = FetchDescriptor<Clipping>()
         if let clippings = try? ctx.fetch(clippingDesc) {
+            // Backfill contentHash on any rows captured before the
+            // hash field existed (legacy migration). Empty hash would
+            // bypass the cross-device dedup, so do this eagerly at
+            // seed time for every row we're about to upload.
+            var hashed = 0
+            for clipping in clippings where clipping.contentHash.isEmpty {
+                clipping.contentHash = clipping.computeContentHash()
+                hashed += 1
+            }
+            if hashed > 0 {
+                try? ctx.save()
+                NSLog("[CopiedSyncEngine] backfilled contentHash on \(hashed) legacy clippings")
+            }
+
             var enqueued = 0
             var skipped = 0
             for clipping in clippings {
@@ -537,14 +551,17 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 }
             }
 
-            // Deletions — hard-delete matching local rows, but skip if
-            // the local row was modified in the last 5 seconds. That's
-            // usually a user-visible race (device A recovered the
-            // clipping from trash while device B was emptying trash);
-            // honoring the delete would hard-remove a just-recovered
-            // row. 5 s is a heuristic — a proper fix needs a server-side
-            // delete timestamp, which requires a record-schema change.
-            let recentEditWindow: TimeInterval = 5
+            // Deletions — hard-delete matching local rows unconditionally.
+            //
+            // Earlier versions had a 5-second "recent local edit"
+            // skip guard, but `modifiedDate` is also set every time an
+            // inbound record applies locally — so the very-recent value
+            // is almost always from a fetch, not a user action. The
+            // guard caused deletions to be silently dropped and records
+            // to resurrect, which is the opposite of what users expect
+            // ("deleted on Mac but keeps coming back on iOS"). Honor
+            // every delete. The rare concurrent-recover race is an
+            // acceptable tradeoff.
             for deletion in event.deletions {
                 let recordName = deletion.recordID.recordName
                 switch deletion.recordType {
@@ -553,12 +570,6 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                         predicate: #Predicate<Clipping> { $0.clippingID == recordName }
                     )
                     if let existing = try? ctx.fetch(desc).first {
-                        if let localModified = existing.modifiedDate,
-                           localModified.timeIntervalSinceNow > -recentEditWindow {
-                            // Local was edited very recently — skip this
-                            // delete, the edit probably supersedes it.
-                            continue
-                        }
                         ctx.delete(existing)
                     }
                 case RecordType.clipList:
@@ -566,10 +577,6 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                         predicate: #Predicate<ClipList> { $0.listID == recordName }
                     )
                     if let existing = try? ctx.fetch(desc).first {
-                        if let localModified = existing.modifiedDate,
-                           localModified.timeIntervalSinceNow > -recentEditWindow {
-                            continue
-                        }
                         ctx.delete(existing)
                     }
                 default:
@@ -689,17 +696,51 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             return
         }
 
-        // Per Apple's canonical CKSyncEngine pattern (sample-cloudkit-
-        // sync-engine): treat every fetch as an idempotent upsert keyed
-        // on recordID.recordName. Do NOT content-dedup on the inbound
-        // path — a fetched echo of our own recent save WILL match local
-        // content by definition; deleting the incoming record as
-        // "duplicate" destroys the canonical server copy and cascades
-        // deletes to peers. Dedup responsibility lives at capture time
-        // (ClipboardService.finalizeCapture's isDuplicateOfLast) and
-        // at user-initiated cleanup (multi-select delete / Empty
-        // Trash). Trust the recordID for identity; let LWW handle the
-        // rest below.
+        // Cross-device content-hash dedup — SAFE version.
+        //
+        // When a record arrives with a recordName we've never seen, but
+        // a local clipping already has the same `contentHash`, both
+        // devices independently captured the same content (typically
+        // via Handoff). Without this check we'd accumulate duplicates
+        // across the pair.
+        //
+        // The fix avoids the "destroy canonical" trap that the previous
+        // simpler content-dedup had. Rule: the lex-min UUID wins.
+        // Both devices compare IDs the same way and independently
+        // converge on the same survivor. The loser is hard-deleted
+        // locally AND removed from the cloud, so all peers drop it on
+        // their next fetch.
+        //
+        // Skips if either side's hash is empty (pre-migration data) —
+        // those get backfilled by `ensureContentHash` / seedLocalData
+        // and the dedup fires on next sync pass.
+        if existing == nil, !isShell,
+           let incomingHash = record["contentHash"] as? String,
+           !incomingHash.isEmpty {
+            let hashMatchDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> {
+                    $0.contentHash == incomingHash && $0.deleteDate == nil
+                }
+            )
+            if let local = try? ctx.fetch(hashMatchDesc).first {
+                if local.clippingID < recordName {
+                    // Local UUID wins — drop the incoming from cloud.
+                    engine?.state.add(pendingRecordZoneChanges: [
+                        .deleteRecord(record.recordID)
+                    ])
+                    return
+                } else {
+                    // Incoming UUID wins — replace local with incoming.
+                    // Delete local + enqueue cloud delete of local's ID.
+                    let loserID = local.clippingID
+                    ctx.delete(local)
+                    engine?.state.add(pendingRecordZoneChanges: [
+                        .deleteRecord(Self.clippingRecordID(loserID))
+                    ])
+                    // Fall through to insert the incoming as a new row.
+                }
+            }
+        }
 
         let incomingModified = record["modifiedDate"] as? Date
         let incomingDeleteDate = record["deleteDate"] as? Date
