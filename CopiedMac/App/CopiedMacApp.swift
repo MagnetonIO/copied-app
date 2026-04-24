@@ -479,11 +479,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("[CopiedMacApp] hotkey: status bar button not found; popover will not toggle")
             return
         }
-        // Activate first so the popover gains key window status,
-        // matching the activation flush behavior the inbound sync
-        // path benefits from.
-        NSApp.activate(ignoringOtherApps: true)
-        button.performClick(nil)
+        if NSApp.isActive {
+            // Already active — click goes straight through.
+            button.performClick(nil)
+        } else {
+            // NSApp.activate is async; if we performClick synchronously,
+            // the click reaches the button before the app/menu-bar
+            // context is active, which only activates the app and
+            // requires a second ⌃⇧C to actually open the popover.
+            // Defer the click one runloop tick so activation lands first.
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                button.performClick(nil)
+            }
+        }
     }
 
     @MainActor

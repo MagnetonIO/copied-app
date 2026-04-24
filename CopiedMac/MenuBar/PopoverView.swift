@@ -1071,20 +1071,17 @@ struct PopoverView: View {
     }
 
     /// Close the MenuBarExtra popover from any responder context.
-    /// `NSApp.keyWindow?.performClose(nil)` is unreliable when called
-    /// from `.onKeyPress` handlers — the search field is first
-    /// responder and the close request gets eaten by the responder
-    /// chain. Finding the popover's NSWindow by class name and
-    /// calling `close()` directly bypasses that.
+    /// Routes through the existing toggle notification, whose handler
+    /// performClicks the NSStatusBarButton — that closes the popover
+    /// AND clears the button's highlight state. Closing the window
+    /// directly (e.g. window.close()) leaves the button stuck in its
+    /// "pressed" highlight because the system thinks the popover is
+    /// still associated with it.
     private func dismissPopover() {
-        for window in NSApp.windows {
-            let className = String(describing: type(of: window))
-            if className.contains("MenuBarExtraWindow") {
-                window.close()
-                return
-            }
-        }
-        NSApp.keyWindow?.performClose(nil)
+        NotificationCenter.default.post(
+            name: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+            object: nil
+        )
     }
 
     /// Warm the thumbnail cache for a few rows around `index` so scroll-back
