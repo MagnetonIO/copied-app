@@ -638,7 +638,7 @@ struct SettingsView: View {
                             .frame(width: 64, height: 64)
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Copied App")
+                        Text("Copied")
                             .font(.title2)
                             .fontWeight(.semibold)
                         Text("Version \(appVersion)")
@@ -713,7 +713,7 @@ struct SettingsView: View {
     private func openSupportEmail() {
         let body = "\n\n\n—\nApp version: \(appVersion)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let subject = "Copied App Support".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let subject = "Copied Support".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         if let url = URL(string: "mailto:support@getcopied.app?subject=\(subject)&body=\(body)") {
             NSWorkspace.shared.open(url)
         }
