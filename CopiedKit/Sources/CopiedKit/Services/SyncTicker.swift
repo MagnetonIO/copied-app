@@ -15,6 +15,15 @@ import CoreData
 /// object and letting SwiftUI observe its state via its native
 /// observation tracking dodges that entire class of delivery bug.
 ///
+/// **Primary trigger is explicit** — `CopiedSyncEngine.handleFetchedRecordZoneChanges`
+/// calls `SyncTicker.shared.bump()` after applying imports. The
+/// `NSPersistentStoreRemoteChange` observer is retained as a
+/// belt-and-suspenders for genuine cross-process writes (Share
+/// Extension → App Group store), but our main-process CKSyncEngine
+/// saves never fire it reliably (NSPCKC is disabled — see
+/// `CopiedSchema.makeContainer`), so the explicit bump is the
+/// load-bearing path.
+///
 /// Mirror use on both platforms — Mac popover needs it because of the
 /// NSHostingController scoping, iOS mirrors for consistency (harmless
 /// overhead there since iOS's `Scene` graph already reacts correctly).
@@ -38,38 +47,24 @@ public final class SyncTicker {
     private var observers: [NSObjectProtocol] = []
 
     private init() {
-        // Subscribe to BOTH known SwiftData-CloudKit change signals:
-        //   1. `NSPersistentStoreRemoteChange` — posted on local saves and
-        //      coordinator-level store changes. Fires for some CloudKit
-        //      imports but unreliably on macOS 15 (confirmed empirically:
-        //      main window and popover alike only refresh on view-mount,
-        //      not on this notification).
-        //   2. `NSPersistentCloudKitContainer.eventChangedNotification` —
-        //      the authoritative CloudKit integration event bus. Fires on
-        //      every .import / .export / .setup start AND end. This is
-        //      what actually carries news of iOS-side adds/deletes into
-        //      Mac's process.
-        // Bump on either so views observing `.tick` refresh in real time.
+        // Keep the `NSPersistentStoreRemoteChange` observer for genuine
+        // cross-process writes (e.g. the iOS Share Extension writing
+        // into the App Group store). Our in-process CKSyncEngine saves
+        // don't post this notification reliably with NSPCKC disabled —
+        // `CopiedSyncEngine.handleFetchedRecordZoneChanges` bumps us
+        // explicitly instead. The `NSPersistentCloudKitContainer.eventChangedNotification`
+        // observer that used to live here was removed: NSPCKC is
+        // disabled (see `CopiedSchema.makeContainer` → `cloudKitDatabase: .none`),
+        // so the notification would never fire and its `.setup` event
+        // used to cause a spurious post-launch tick.
         let change = NotificationCenter.default.addObserver(
             forName: .NSPersistentStoreRemoteChange,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.tick &+= 1 }
         }
         observers.append(change)
-
-        let ckEvent = NotificationCenter.default.addObserver(
-            forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] note in
-            let event = note.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
-                as? NSPersistentCloudKitContainer.Event
-            guard let event, event.endDate != nil, event.type == .import else { return }
-            Task { @MainActor in self?.tick &+= 1 }
-        }
-        observers.append(ckEvent)
     }
 
     // SyncTicker is an app-lifetime singleton; deinit never runs in

@@ -1,13 +1,20 @@
 import SwiftUI
 import SwiftData
 import CopiedKit
+import OSLog
 
 /// Full management window — three-column layout: Sidebar | Clippings | Detail.
 struct MainWindowView: View {
+    private let syncProfileLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "Copied",
+        category: "SyncProfile"
+    )
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ClipboardService.self) private var clipboardService
     @Environment(AppState.self) private var appState
     @Environment(SyncMonitor.self) private var syncMonitor
+    @Environment(SyncTicker.self) private var syncTicker
 
     @Query(sort: \ClipList.sortOrder) private var lists: [ClipList]
 
@@ -40,6 +47,7 @@ struct MainWindowView: View {
     @State private var hoveringListsHeader = false
 
     var body: some View {
+        let _ = syncTicker.tick
         @Bindable var state = appState
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
@@ -63,18 +71,27 @@ struct MainWindowView: View {
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search all clippings…")
         .toolbar { toolbar }
         .onAppear {
+            syncProfileLogger.log("trigger mainWindow.onAppear")
             // Pick up a pre-seeded query from the URL scheme (copied://search?q=…).
             if !appState.searchText.isEmpty && searchText.isEmpty {
                 searchText = appState.searchText
             }
-            // Real manual sync via CKSyncEngine on window open. Pulls
-            // anything iOS pushed since we last fetched and pushes any
-            // local mutations that queued up while the window was closed.
-            Task { await CopiedSyncEngine.shared.syncNow() }
+            // Explicit pull on window open — Apple-recommended pattern
+            // for "give me current data before continuing."
+            Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.mainWindow.onAppear") }
         }
         .onChange(of: appState.searchText) { _, newValue in
             if newValue != searchText {
                 searchText = newValue
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            syncProfileLogger.log("trigger mainWindow.scenePhase phase=\(String(describing: phase), privacy: .public)")
+            // Window transitioning to active (user clicked back into it
+            // from another app) → fetch latest. CKSyncEngine handles
+            // its own background cadence; this is the UI-driven nudge.
+            if phase == .active {
+                Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.mainWindow.sceneActive") }
             }
         }
     }

@@ -17,8 +17,6 @@ struct SettingsView: View {
     @Environment(SyncMonitor.self) private var syncMonitor
     @AppStorage("maxHistorySize") private var maxHistorySize = 5000
     @AppStorage("showWindowOnLaunch") private var showWindowOnLaunch = false
-    @AppStorage("showInDock") private var showInDock = false
-    @AppStorage("allowDuplicates") private var allowDuplicates = false
     @AppStorage("captureImages") private var captureImages = true
     @AppStorage("captureRichText") private var captureRichText = true
     @AppStorage("pasteAndClose") private var pasteAndClose = true
@@ -158,18 +156,6 @@ struct SettingsView: View {
 
             Toggle("Show main window on launch", isOn: $showWindowOnLaunch)
                 .tint(.accentColor)
-            Toggle("Show in Dock", isOn: $showInDock)
-                .tint(.accentColor)
-                .onChange(of: showInDock) { _, newValue in
-                    // Delay policy change so Settings window isn't killed mid-interaction
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        NSApp.setActivationPolicy(newValue ? .regular : .accessory)
-                        // Re-activate app so Settings window stays visible
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            NSApp.activate(ignoringOtherApps: true)
-                        }
-                    }
-                }
 
             Toggle("Copy and close popover", isOn: $pasteAndClose)
                 .tint(.accentColor)
@@ -215,41 +201,13 @@ struct SettingsView: View {
                     }
                 }
 
-                LabeledContent("Duplicates") {
-                    HStack(spacing: 8) {
-                        if let msg = dedupResultMessage {
-                            Text(msg)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button("Remove Duplicates") {
-                            presentsDedupConfirm = true
-                        }
-                    }
-                }
             } header: {
                 Text("History")
-            } footer: {
-                Text("Remove Duplicates scans your history for clippings with identical content and moves all but the earliest copy to Trash.")
             }
         }
         .formStyle(.grouped)
         .padding()
-        .confirmationDialog("Remove duplicates?", isPresented: $presentsDedupConfirm) {
-            Button("Scan & Move Duplicates to Trash", role: .destructive) {
-                let removed = ClipboardService.removeDuplicates(in: modelContext)
-                dedupResultMessage = removed == 0
-                    ? "No duplicates found"
-                    : "Moved \(removed) to Trash"
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Clippings with identical content will be moved to Trash. The earliest copy of each is kept.")
-        }
     }
-
-    @State private var presentsDedupConfirm = false
-    @State private var dedupResultMessage: String?
 
     // MARK: - Clipboard
 
@@ -264,9 +222,6 @@ struct SettingsView: View {
 
     private var clipboardTab: some View {
         Form {
-            Toggle("Allow duplicate clippings", isOn: $allowDuplicates)
-                .tint(.accentColor)
-                .onChange(of: allowDuplicates) { _, val in clipboardService.allowDuplicates = val }
             Toggle("Capture images", isOn: $captureImages)
                 .tint(.accentColor)
                 .onChange(of: captureImages) { _, val in clipboardService.captureImages = val }

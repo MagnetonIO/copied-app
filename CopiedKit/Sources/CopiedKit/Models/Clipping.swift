@@ -104,7 +104,11 @@ public final class Clipping {
 extension Clipping {
     public var isInTrash: Bool { deleteDate != nil }
 
-    // BUG-25 fix: use hasImage instead of faulting imageData
+    // Comprehensive fallback chain. "Empty Clipping" should never
+    // surface to the user — a clipping reaching the final fallback is
+    // a bug state (capture path should refuse, upsert isShell-check
+    // should drop, scheduled purge should clean). Use a distinctive
+    // label so these rows are visible for debugging if they leak.
     public var displayTitle: String {
         if let title, !title.isEmpty { return title }
         if let text, !text.isEmpty {
@@ -112,16 +116,18 @@ extension Clipping {
         }
         if let url, !url.isEmpty { return url }
         // RichText/HTML-only clippings have no plain `text` but do
-        // have an `extractedText` from capture-time parsing. Fall back
-        // to that before giving up with "Empty Clipping" — otherwise
-        // legitimate rich-text pastes look like garbage.
+        // have an `extractedText` from capture-time parsing.
         if let extracted = extractedText, !extracted.isEmpty {
             return String(extracted.prefix(120)).replacingOccurrences(of: "\n", with: " ")
         }
         if hasImage { return "Image" }
         if hasRichText { return "Rich Text" }
         if hasHTML { return "HTML" }
-        return "Empty Clipping"
+        if let src = sourceURL, !src.isEmpty { return src }
+        // Final fallback — row has no content signals at all. This is
+        // a bug state; the row should never render. purgeEmptyClippings
+        // at launch cleans these up automatically.
+        return "(content missing)"
     }
 
     public var contentKind: ContentKind {

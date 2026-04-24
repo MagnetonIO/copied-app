@@ -108,13 +108,19 @@ struct RootNavigator: View {
                 }
             }
 
-            modelContext.insert(clip)
-            do {
-                try modelContext.save()
+            // Route through the canonical insert pipeline: it runs the
+            // empty-shell guard (so a Share Extension entry that wrote
+            // all-nil fields can't surface as a ghost "Empty Clipping"),
+            // dedups against existing content by hash, and enqueues the
+            // row for CloudKit sync. Ack the inbox entry in every
+            // outcome except a pure failure — rejected/merged both
+            // mean the entry was handled successfully.
+            switch ClipboardService.insertOrMerge(clip, in: modelContext) {
+            case .inserted, .merged:
                 SharedStore.acknowledge(entry)
-            } catch {
-                modelContext.delete(clip)
-                NSLog("drainShareInbox: save failed for \(item.id): \(error)")
+            case .rejected:
+                NSLog("drainShareInbox: empty entry \(item.id) dropped")
+                SharedStore.acknowledge(entry)
             }
         }
     }

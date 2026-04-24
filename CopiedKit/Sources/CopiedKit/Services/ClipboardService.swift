@@ -55,8 +55,10 @@ public final class ClipboardService {
     public var captureCount: Int = 0
     public var excludedBundleIDs: Set<String> = []
 
-    // User-configurable capture settings
-    public var allowDuplicates: Bool = false
+    // User-configurable capture settings.
+    // `allowDuplicates` removed (Q7): dedup is always-on via
+    // contentHash lookup in finalizeCapture. Same content merges into
+    // the existing row; no user setting needed.
     public var captureImages: Bool = true
     public var captureRichText: Bool = true
 
@@ -83,7 +85,6 @@ public final class ClipboardService {
 
     public init(maxHistory: Int? = nil) {
         self.maxHistoryOverride = maxHistory
-        self.allowDuplicates = UserDefaults.standard.bool(forKey: "allowDuplicates")
         self.captureImages = UserDefaults.standard.object(forKey: "captureImages") as? Bool ?? true
         self.captureRichText = UserDefaults.standard.object(forKey: "captureRichText") as? Bool ?? true
     }
@@ -155,9 +156,13 @@ public final class ClipboardService {
         //
         // Narrow fetch via the scalar `hasImage` index so we don't
         // fault externalStorage blobs on every row.
+        // Match Clipping.displayTitle's "Empty Clipping" fallback: no
+        // text / title / url / extractedText / sourceURL AND no image /
+        // richText / HTML. Narrow the fetch via scalar index then
+        // filter remaining content-bearing fields in memory.
         let desc = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { c in
-                c.hasImage == false
+                c.hasImage == false && c.hasRichText == false && c.hasHTML == false
             }
         )
         guard let candidates = try? context.fetch(desc) else { return }
@@ -165,7 +170,9 @@ public final class ClipboardService {
             let textEmpty = (c.text ?? "").isEmpty
             let titleEmpty = (c.title ?? "").isEmpty
             let urlEmpty = (c.url ?? "").isEmpty
-            return textEmpty && titleEmpty && urlEmpty
+            let sourceEmpty = (c.sourceURL ?? "").isEmpty
+            let extractedEmpty = (c.extractedText ?? "").isEmpty
+            return textEmpty && titleEmpty && urlEmpty && sourceEmpty && extractedEmpty
         }
         guard !empties.isEmpty else { return }
         let deletedIDs = empties.map(\.clippingID)
@@ -304,6 +311,95 @@ public final class ClipboardService {
         lastChangeCount = UIPasteboard.general.changeCount
     }
     #endif
+
+    // MARK: - Canonical insert pipeline
+
+    /// Outcome of `insertOrMerge`.
+    public enum InsertOutcome {
+        /// Brand-new content committed.
+        case inserted
+        /// Same content already existed; MRU timestamps bumped instead.
+        /// Associated value is the row that absorbed the merge.
+        case merged(Clipping)
+        /// Clipping had no content signals — refused before touching the store.
+        case rejected
+    }
+
+    /// Canonical insert pipeline for every SwiftData path in the app —
+    /// auto-capture, Share Extension drain, manual Save CTA, merge
+    /// script output. Consolidates the empty-shell guard, SHA-256
+    /// content fingerprint, hash-based dedup, and `CKSyncEngine`
+    /// enqueue that every insert path was re-implementing (and most
+    /// were skipping steps, which is why iOS kept producing "Empty
+    /// Clipping" ghost rows and why Share Extension entries never made
+    /// it to the Mac).
+    ///
+    /// Callers populate all content fields on `clipping` first
+    /// (text/url/imageData/hasRichText/appName/etc.). This helper
+    /// handles the four mandatory steps:
+    ///   1. Reject clippings with no content signals.
+    ///   2. Compute `contentHash`.
+    ///   3. If an active row with the same hash exists, bump its MRU
+    ///      timestamps, save, and enqueue the existing row's CK change.
+    ///      The caller's `clipping` instance is discarded.
+    ///   4. Otherwise insert the caller's clipping, save, and enqueue it.
+    @MainActor
+    @discardableResult
+    public static func insertOrMerge(
+        _ clipping: Clipping,
+        in context: ModelContext
+    ) -> InsertOutcome {
+        // Empty-shell guard. A row without any content signals is a bug
+        // state — the Share Extension once wrote such rows, which
+        // surfaced as "Empty Clipping" ghosts on both platforms.
+        let didCapture = (clipping.text?.isEmpty == false)
+            || (clipping.url?.isEmpty == false)
+            || clipping.hasImage
+            || clipping.hasRichText
+            || clipping.hasHTML
+            || (clipping.sourceURL?.isEmpty == false)
+            || (clipping.extractedText?.isEmpty == false)
+        guard didCapture else { return .rejected }
+
+        // SHA-256 fingerprint — same content → same hash on every
+        // device, serving both capture-time dedup and cross-device
+        // dedup in `CopiedSyncEngine.upsertClipping`.
+        clipping.contentHash = clipping.computeContentHash()
+        let hash = clipping.contentHash
+
+        // Content-hash dedup — ALWAYS ON (Q7). "Allow duplicates" is a
+        // nonsense option for a clipboard history. Copying the same
+        // text 100× yields one row that keeps bubbling to the top.
+        if !hash.isEmpty {
+            let dupeDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> {
+                    $0.deleteDate == nil && $0.contentHash == hash
+                }
+            )
+            if let existing = try? context.fetch(dupeDesc).first {
+                let now = Date()
+                existing.lastUsedDate = now
+                existing.copiedDate = now
+                existing.addDate = now
+                existing.modifiedDate = now
+                try? context.save()
+                CopiedSyncEngine.shared.enqueueChange(
+                    recordID: CopiedSyncEngine.clippingRecordID(existing.clippingID)
+                )
+                return .merged(existing)
+            }
+        }
+
+        context.insert(clipping)
+        try? context.save()
+        // Push to CloudKit via CKSyncEngine. Safe to call even if the
+        // engine hasn't started — buffered in pending state and
+        // flushed on first `sendChanges`.
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clippingRecordID(clipping.clippingID)
+        )
+        return .inserted
+    }
 
     // MARK: - macOS Polling
 
@@ -451,71 +547,26 @@ public final class ClipboardService {
             clipping.title = videoTitle
         }
 
-        let didCapture = clipping.text != nil
-            || clipping.url != nil
-            || clipping.hasImage
-            || clipping.hasRichText
-            || clipping.sourceURL != nil
-        guard didCapture else { return }
-
         if let text = clipping.text {
             let detection = CodeDetector.detect(in: text)
             clipping.isCode = detection.isCode
             clipping.detectedLanguage = detection.language
         }
 
-        // Compute the SHA-256 content fingerprint — used for both
-        // capture-time dedup (below) and cross-device dedup (in
-        // CKSyncEngine upsertClipping). Same content → same hash on
-        // every device, making it the secondary identity key.
-        clipping.contentHash = clipping.computeContentHash()
-
-        // Content-hash dedup: if any existing active clipping has the
-        // same hash, merge instead of inserting. "Copying COPY a
-        // hundred times" collapses to a single row that keeps getting
-        // its MRU timestamps bumped. Respects `allowDuplicates` — when
-        // user opts in, every capture creates a distinct row.
-        if !allowDuplicates {
-            let hash = clipping.contentHash
-            if !hash.isEmpty {
-                let dupeDesc = FetchDescriptor<Clipping>(
-                    predicate: #Predicate<Clipping> {
-                        $0.deleteDate == nil && $0.contentHash == hash
-                    }
-                )
-                if let existing = try? modelContext.fetch(dupeDesc).first {
-                    let now = Date()
-                    existing.lastUsedDate = now
-                    existing.copiedDate = now
-                    existing.addDate = now
-                    existing.modifiedDate = now
-                    try? modelContext.save()
-                    CopiedSyncEngine.shared.enqueueChange(
-                        recordID: CopiedSyncEngine.clippingRecordID(existing.clippingID)
-                    )
-                    lastCapturedDate = now
-                    return
-                }
-            }
-            // Legacy fallback for pre-hash rows still in the store.
-            if isDuplicateOfLast(clipping) { return }
-        }
-
         clipping.appName = input.appName
         clipping.appBundleID = input.appBundleID
         clipping.deviceName = input.deviceName
 
-        modelContext.insert(clipping)
-        try? modelContext.save()
-        lastCapturedDate = Date()
-        captureCount += 1
-        // Push the new clipping to CloudKit via CKSyncEngine. Safe to
-        // call even if the engine hasn't started (gate off / not
-        // signed-in) — the call buffers pending changes in the engine's
-        // state, flushed on first `sendChanges`.
-        CopiedSyncEngine.shared.enqueueChange(
-            recordID: CopiedSyncEngine.clippingRecordID(clipping.clippingID)
-        )
+        switch Self.insertOrMerge(clipping, in: modelContext) {
+        case .rejected:
+            return
+        case .merged:
+            lastCapturedDate = Date()
+            return
+        case .inserted:
+            lastCapturedDate = Date()
+            captureCount += 1
+        }
 
         enforceHistoryLimit()
         trimByAge()
@@ -767,9 +818,9 @@ public final class ClipboardService {
             clipping.imageData = data
             clipping.imageWidth = Double(image.size.width)
             clipping.imageHeight = Double(image.size.height)
-            // `hasImage` drives `Clipping.contentKind` (→ `.image`) and the
-            // image-dedup window in `isDuplicateOfLast`. `imageByteCount` is
-            // the fast dedup key; `imageFormat` tells the Mac renderer how to
+            // `hasImage` drives `Clipping.contentKind` (→ `.image`).
+            // `imageByteCount` feeds the content-hash fingerprint used
+            // for dedup; `imageFormat` tells the Mac renderer how to
             // decode. All three must be set together.
             clipping.hasImage = true
             clipping.imageByteCount = data.count
@@ -780,9 +831,6 @@ public final class ClipboardService {
         clipping.deviceName = UIDevice.current.name
 
         guard didCapture else { return }
-
-        // Dedup check
-        if !allowDuplicates && isDuplicateOfLast(clipping) { return }
 
         // Evaluate user-defined automation rules BEFORE the insert. A rule
         // can veto the save entirely (.skip), flag the clipping as favorite,
@@ -805,10 +853,15 @@ public final class ClipboardService {
             }
         }
 
-        modelContext.insert(clipping)
-        try? modelContext.save()
-        lastCapturedDate = Date()
-        captureCount += 1
+        switch Self.insertOrMerge(clipping, in: modelContext) {
+        case .rejected:
+            return
+        case .merged:
+            lastCapturedDate = Date()
+        case .inserted:
+            lastCapturedDate = Date()
+            captureCount += 1
+        }
     }
     #endif
 
@@ -864,86 +917,10 @@ public final class ClipboardService {
 
     // MARK: - Dedup & Limits
 
-    /// Checks if a new clipping is identical to any of the last N clippings.
-    /// Compares text, URL, and image dimensions+size to catch all content types.
-    private static let dedupWindowSize = 10
-
-    private func isDuplicateOfLast(_ candidate: Clipping) -> Bool {
-        guard let modelContext else { return false }
-
-        var descriptor = FetchDescriptor<Clipping>(
-            sortBy: [SortDescriptor(\.addDate, order: .reverse)]
-        )
-        descriptor.fetchLimit = Self.dedupWindowSize
-
-        guard let recentClippings = try? modelContext.fetch(descriptor), !recentClippings.isEmpty else { return false }
-
-        for existing in recentClippings {
-            // Text match — BUG-03 fix: don't access imageData, use hasImage scalar
-            if let newText = candidate.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let oldText = existing.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !newText.isEmpty, newText == oldText {
-                if !candidate.hasImage && !existing.hasImage {
-                    return true
-                }
-            }
-
-            // Image match — use scalar imageByteCount instead of loading imageData
-            if candidate.hasImage && existing.hasImage {
-                if candidate.imageWidth == existing.imageWidth &&
-                   candidate.imageHeight == existing.imageHeight &&
-                   candidate.imageByteCount == existing.imageByteCount {
-                    return true
-                }
-            }
-
-            // URL-only match
-            if candidate.text == nil && !candidate.hasImage,
-               let newURL = candidate.url, let oldURL = existing.url,
-               newURL == oldURL {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /// R-3 cleanup: one-shot pass that finds all active clippings with the
-    /// same content hash and moves all but the earliest (by addDate) to
-    /// Trash. Returns the number of duplicates trashed. Intended for the
-    /// user-visible "Remove Duplicates" Settings action.
-    ///
-    /// Runs on the main actor; we batch mutations and save once at the
-    /// end rather than letting each `moveToTrash()` save individually,
-    /// which would trigger a CloudKit export per row and stall the UI.
-    @MainActor
-    public static func removeDuplicates(in context: ModelContext) -> Int {
-        var descriptor = FetchDescriptor<Clipping>(
-            predicate: #Predicate { $0.deleteDate == nil }
-        )
-        descriptor.sortBy = [SortDescriptor(\.addDate, order: .forward)]
-        guard let active = try? context.fetch(descriptor) else { return 0 }
-
-        var seen: Set<String> = []
-        var removed = 0
-        for clip in active {
-            clip.ensureContentHash()
-            let hash = clip.contentHash
-            if seen.contains(hash) {
-                // Set deleteDate directly to skip the per-row save() in
-                // moveToTrash(); we batch one save at the end.
-                clip.deleteDate = Date()
-                clip.modifiedDate = Date()
-                removed += 1
-            } else {
-                seen.insert(hash)
-            }
-        }
-        if removed > 0 {
-            try? context.save()
-        }
-        return removed
-    }
+    // Q7: `isDuplicateOfLast` window check and `removeDuplicates(in:)`
+    // cleanup static removed. Dedup is enforced at `insertOrMerge`
+    // time via `contentHash`, so duplicates can never reach storage
+    // and there is nothing for a manual cleanup pass to collect.
 
     private func enforceHistoryLimit() {
         guard let modelContext else { return }

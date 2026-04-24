@@ -19,18 +19,22 @@ public enum CopiedSchema {
     ]
 
     public static func makeContainer(inMemory: Bool = false, cloudSync: Bool = true) throws -> ModelContainer {
+        // NSPersistentCloudKitContainer mirror DISABLED — CKSyncEngine
+        // (CopiedSyncEngine.shared) is the sole sync path. Passing
+        // `.private(...)` here causes NSPCKC to run a parallel mirror
+        // into the legacy `com.apple.coredata.cloudkit.zone`, generating
+        // `cloudkit.activity.export` log spam and racing CKSyncEngine
+        // for bandwidth/etag state. See plan Q1.
+        //
+        // `cloudSync` parameter retained for API compatibility but no
+        // longer affects CloudKit mirroring — CopiedSyncEngine gates
+        // on its own `initialCloudSyncEnabled`.
+        _ = cloudSync
         let schema = Schema(models)
         let config = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: inMemory,
-            // Phase 7 cutover point: flip to `.none` unconditionally to
-            // disable NSPersistentCloudKitContainer's automatic mirror.
-            // CKSyncEngine (CopiedSyncEngine.shared) then becomes the
-            // sole sync layer. Left enabled during early verification
-            // of the CKSyncEngine migration so the app has a fallback
-            // if the new engine misbehaves — pending a round of real
-            // two-device testing before the flip.
-            cloudKitDatabase: cloudSync ? .private(containerIdentifier) : .none
+            cloudKitDatabase: .none
         )
         return try ModelContainer(for: schema, configurations: [config])
     }

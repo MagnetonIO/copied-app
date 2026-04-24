@@ -59,7 +59,6 @@
 		D627B7F3A8BDC97E9008F6EE /* TextFormattersSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82213C00ABECE06AEF5974E /* TextFormattersSettingsView.swift */; };
 		D8EB6881A2C104748CC89F15 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */; };
 		DB6B066B32FB31C7303889C7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D76CBB77DB5A5E7B079F71A7 /* Assets.xcassets */; };
-		DD265A8A1086BACBC893AAF5 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81E8FF99A9750B5718F93BF /* StatusBarController.swift */; };
 		DFD6BE1E71C872610E6D38D3 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A45E61C459AE9606303437C5 /* UniformTypeIdentifiers.framework */; };
 		E0D9256012865D83AE6F87BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2977CA0AC8339871C8329B52 /* Assets.xcassets */; };
 		E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */; };
@@ -155,7 +154,6 @@
 		A82213C00ABECE06AEF5974E /* TextFormattersSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFormattersSettingsView.swift; sourceTree = "<group>"; };
 		B0BCED9C4D9AA3FB500882EB /* ClipperActionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipperActionViewController.swift; sourceTree = "<group>"; };
 		B5A4114F0D078DA4FF7B6D6E /* InterfaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSettingsView.swift; sourceTree = "<group>"; };
-		B81E8FF99A9750B5718F93BF /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
 		BDCB5C4650FAAE414B4E2D3F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BE2E27F191AFBB92C5CD30E2 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CopiedKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -235,7 +233,6 @@
 				5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */,
 				D68365944B55FF8FB14382D5 /* PermissionManager.swift */,
 				64F5B9606604EF52355AC247 /* SettingsWindowController.swift */,
-				B81E8FF99A9750B5718F93BF /* StatusBarController.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -555,14 +552,7 @@
 					67CF2DC485C5993966B494D7 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = {
-						com.apple.Push = {
-							enabled = 1;
-						};
-						com.apple.iCloud = {
-							enabled = 1;
-						};
-					};
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
 					};
 					BCFE06295783F2744BA56339 = {
 						DevelopmentTeam = 7727LYTG96;
@@ -571,17 +561,7 @@
 					F47662F6E87A5A3AD6388873 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = {
-						com.apple.ApplicationGroups.iOS = {
-							enabled = 1;
-						};
-						com.apple.Push = {
-							enabled = 1;
-						};
-						com.apple.iCloud = {
-							enabled = 1;
-						};
-					};
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1], \"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -674,7 +654,6 @@
 				BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */,
 				E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */,
 				24B456A53173354F4798AF53 /* SettingsWindowController.swift in Sources */,
-				DD265A8A1086BACBC893AAF5 /* StatusBarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

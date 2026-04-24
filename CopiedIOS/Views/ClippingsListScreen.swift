@@ -695,15 +695,18 @@ private struct QueryList: View {
 
         let clip = Clipping(text: output, title: "Merged (\(selected.count))", url: nil)
         if let modelContext = selected.first?.modelContext {
-            modelContext.insert(clip)
-            try? modelContext.save()
+            // Canonical insert pipeline — if the user runs the same merge
+            // on the same selection twice, the second run merges into
+            // the first row instead of producing a duplicate.
+            ClipboardService.insertOrMerge(clip, in: modelContext)
         }
 
         // Push onto the system pasteboard so the user can paste it
         // immediately. UIPasteboard is used directly here because the
         // ClipboardService is an environment object on the parent view
-        // and we don't thread it through the QueryList init; the auto-
-        // capture path dedups against this via `isDuplicateOfLast`.
+        // and we don't thread it through the QueryList init; the
+        // pasteboard observer sees the write and the canonical dedup
+        // in `insertOrMerge` prevents a second row from being captured.
         UIPasteboard.general.string = output
 
         // Exit multi-select so the next interaction feels clean.

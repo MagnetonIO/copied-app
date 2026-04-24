@@ -2,6 +2,7 @@ import Foundation
 import CloudKit
 import SwiftData
 import Observation
+import OSLog
 
 /// Sync engine wrapper around Apple's `CKSyncEngine` (iOS 17 / macOS 14+).
 ///
@@ -31,6 +32,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     public static let shared = CopiedSyncEngine(
         containerIdentifier: CopiedSchema.containerIdentifier
     )
+
+    private static let profileLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "Copied",
+        category: "SyncProfile"
+    )
+    private static let signposter = OSSignposter(logger: profileLogger)
 
     // MARK: - Zone + record-type constants
 
@@ -100,6 +107,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         /// `upsertClipList` scans + re-stitches once the target list
         /// upserts. Entry cleared on re-stitch.
         var pendingListReferences: [String: String] = [:]
+        /// Encoded `CKServerChangeToken` for our manual zone-changes
+        /// fetch path. Independent from the engine's own token
+        /// (`stateSerialization`) — kept separately so the manual
+        /// pull never corrupts engine state. Used by
+        /// `manualInboundFetch` to compensate for macOS withholding
+        /// silent pushes from background menu-bar apps.
+        var manualPullZoneToken: Data?
     }
 
     private var persisted: Persisted
@@ -257,6 +271,24 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// which can interleave mid-batch and lose pending mutations.
     /// `@MainActor`-isolated read/write is the simplest correct pattern.
     @MainActor private var syncInFlight = false
+    @MainActor private var fetchInFlight = false
+    @MainActor private var manualPullInFlight = false
+    @MainActor private var lastManualPullAt: Date?
+    @MainActor private static let manualPullCooldown: TimeInterval = 3
+
+    @MainActor
+    private struct FetchOutcome {
+        var source: String
+        var startedAt: Date
+        var sawDatabaseChanges = false
+        var sawWillFetchRecordZoneChanges = false
+        var sawDidFetchRecordZoneChanges = false
+        var sawRecordZoneChanges = false
+        var modificationCount = 0
+        var deletionCount = 0
+    }
+
+    @MainActor private var currentFetchOutcome: FetchOutcome?
 
     /// Manual sync — fetch first (pull inbound), then send (push outbound).
     /// Matches the user's "Sync Now" semantics: one button, both directions.
@@ -265,33 +297,390 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     public func syncNow() async {
         guard !syncInFlight else { return }
         guard let engine else { return }
+        let signpostID = Self.signposter.makeSignpostID()
+        let state = Self.signposter.beginInterval(
+            "syncNow",
+            id: signpostID,
+            "source=manual"
+        )
         syncInFlight = true
         defer { syncInFlight = false }
+        defer { Self.signposter.endInterval("syncNow", state) }
         do {
+            Self.profileLogger.log("syncNow begin source=manual")
+            NSLog("[CopiedSyncEngine] syncNow source=manual.fetch begin")
             try await engine.fetchChanges()
+            NSLog("[CopiedSyncEngine] syncNow source=manual.send begin")
             try await engine.sendChanges()
+            NSLog("[CopiedSyncEngine] syncNow source=manual complete")
+            Self.profileLogger.log("syncNow complete source=manual")
         } catch {
             NSLog("[CopiedSyncEngine] syncNow failed: \(error.localizedDescription)")
+            Self.profileLogger.error("syncNow failed source=manual error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
-    public func fetchChanges() async {
-        try? await engine?.fetchChanges()
+    public func fetchChanges(source: String = "unknown") async {
+        let pendingChanges = engine?.state.pendingRecordZoneChanges ?? []
+        let pendingSaveCount = pendingChanges.reduce(into: 0) { count, change in
+            if case .saveRecord = change { count += 1 }
+        }
+        let pendingDeleteCount = pendingChanges.reduce(into: 0) { count, change in
+            if case .deleteRecord = change { count += 1 }
+        }
+        let (syncNowInFlight, shouldRun) = await MainActor.run { () -> (Bool, Bool) in
+            let syncNowInFlight = self.syncInFlight
+            guard !self.fetchInFlight else { return (syncNowInFlight, false) }
+            self.fetchInFlight = true
+            self.currentFetchOutcome = FetchOutcome(source: source, startedAt: Date())
+            return (syncNowInFlight, true)
+        }
+        guard shouldRun else {
+            Self.profileLogger.log("fetchChanges skipped source=\(source, privacy: .public) reason=fetchAlreadyInFlight")
+            return
+        }
+        let signpostID = Self.signposter.makeSignpostID()
+        let state = Self.signposter.beginInterval(
+            "fetchChanges",
+            id: signpostID,
+            "source=\(source, privacy: .public)"
+        )
+        do {
+            Self.profileLogger.log(
+                "fetchContext source=\(source, privacy: .public) engineReady=\(self.engine != nil) syncInFlight=\(syncNowInFlight) pendingSaves=\(pendingSaveCount) pendingDeletes=\(pendingDeleteCount) hasStateSerialization=\(self.persisted.stateSerialization != nil) didSeedUpload=\(self.persisted.didSeedUpload) pendingListRefs=\(self.persisted.pendingListReferences.count)"
+            )
+            Self.profileLogger.log("fetchChanges begin source=\(source, privacy: .public)")
+            NSLog("[CopiedSyncEngine] fetchChanges source=\(source) begin")
+            try await engine?.fetchChanges()
+            NSLog("[CopiedSyncEngine] fetchChanges source=\(source) complete")
+            Self.profileLogger.log("fetchChanges complete source=\(source, privacy: .public)")
+        } catch {
+            NSLog("[CopiedSyncEngine] fetchChanges source=\(source) failed: \(error.localizedDescription)")
+            Self.profileLogger.error("fetchChanges failed source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        }
+        let finishedOutcome = await MainActor.run { () -> FetchOutcome? in
+            let outcome = self.currentFetchOutcome
+            self.currentFetchOutcome = nil
+            self.fetchInFlight = false
+            return outcome
+        }
+        if let finishedOutcome {
+            Self.profileLogger.log(
+                "fetchOutcome source=\(finishedOutcome.source, privacy: .public) duration=\(Date().timeIntervalSince(finishedOutcome.startedAt)) sawDatabaseChanges=\(finishedOutcome.sawDatabaseChanges) sawWillFetchRecordZoneChanges=\(finishedOutcome.sawWillFetchRecordZoneChanges) sawDidFetchRecordZoneChanges=\(finishedOutcome.sawDidFetchRecordZoneChanges) sawRecordZoneChanges=\(finishedOutcome.sawRecordZoneChanges) modifications=\(finishedOutcome.modificationCount) deletions=\(finishedOutcome.deletionCount)"
+            )
+        }
+        Self.signposter.endInterval("fetchChanges", state)
     }
 
     public func sendChanges() async {
-        try? await engine?.sendChanges()
+        do {
+            try await engine?.sendChanges()
+        } catch {
+            NSLog("[CopiedSyncEngine] sendChanges failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Manual inbound fetch (background-app push compensation)
+
+    /// Real server round-trip via `CKFetchRecordZoneChangesOperation`,
+    /// independent of `CKSyncEngine.fetchChanges()`. Needed because
+    /// macOS withholds CloudKit silent pushes from background menu-bar
+    /// apps until the app activates — without a push, the engine has
+    /// nothing to process and `fetchChanges()` is a no-op.
+    ///
+    /// Uses our own change token (`persisted.manualPullZoneToken`)
+    /// rather than the engine's serialized state. Records are routed
+    /// through the same `upsertClipping` / `upsertClipList` paths the
+    /// engine uses, so a record arriving twice (once via this path,
+    /// once via the engine) merges idempotently.
+    public func manualInboundFetch(source: String) async {
+        guard let _ = engine else {
+            Self.profileLogger.log(
+                "manualPull skipped source=\(source, privacy: .public) reason=engineNotStarted"
+            )
+            return
+        }
+
+        let shouldRun = await MainActor.run { () -> Bool in
+            guard !self.manualPullInFlight else { return false }
+            if let last = self.lastManualPullAt,
+               Date().timeIntervalSince(last) < Self.manualPullCooldown {
+                return false
+            }
+            self.manualPullInFlight = true
+            self.lastManualPullAt = Date()
+            return true
+        }
+        guard shouldRun else {
+            Self.profileLogger.log(
+                "manualPull skipped source=\(source, privacy: .public) reason=cooldownOrInFlight"
+            )
+            return
+        }
+        defer {
+            Task { @MainActor in self.manualPullInFlight = false }
+        }
+
+        let startedAt = Date()
+        let token = decodedManualPullToken()
+        Self.profileLogger.log(
+            "manualPull begin source=\(source, privacy: .public) hasToken=\(token != nil)"
+        )
+
+        do {
+            let result = try await fetchZoneChanges(token: token)
+            await applyManualPullChanges(
+                modifications: result.modifications,
+                deletions: result.deletions,
+                source: source
+            )
+            if let newToken = result.newToken {
+                encodeManualPullToken(newToken)
+            }
+            Self.profileLogger.log(
+                "manualPull complete source=\(source, privacy: .public) durationMs=\(Int(Date().timeIntervalSince(startedAt) * 1000)) modifications=\(result.modifications.count) deletions=\(result.deletions.count) moreComing=\(result.moreComing) tokenAdvanced=\(result.newToken != nil)"
+            )
+
+            // If the server says there's more, drain immediately
+            // (CloudKit caps each response). Cooldown gate is bypassed
+            // for the continuation since we're already in-flight.
+            if result.moreComing {
+                Self.profileLogger.log(
+                    "manualPull continuing source=\(source, privacy: .public) reason=moreComing"
+                )
+                await drainRemainingZoneChanges(source: source)
+            }
+        } catch {
+            NSLog("[CopiedSyncEngine] manualPull source=\(source) failed: \(error.localizedDescription)")
+            Self.profileLogger.error(
+                "manualPull failed source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func drainRemainingZoneChanges(source: String) async {
+        var pageIndex = 1
+        while true {
+            let token = decodedManualPullToken()
+            do {
+                let result = try await fetchZoneChanges(token: token)
+                await applyManualPullChanges(
+                    modifications: result.modifications,
+                    deletions: result.deletions,
+                    source: "\(source).page\(pageIndex)"
+                )
+                if let newToken = result.newToken {
+                    encodeManualPullToken(newToken)
+                }
+                Self.profileLogger.log(
+                    "manualPull page source=\(source, privacy: .public) page=\(pageIndex) modifications=\(result.modifications.count) deletions=\(result.deletions.count) moreComing=\(result.moreComing)"
+                )
+                if !result.moreComing { return }
+                pageIndex += 1
+            } catch {
+                Self.profileLogger.error(
+                    "manualPull page failed source=\(source, privacy: .public) page=\(pageIndex) error=\(error.localizedDescription, privacy: .public)"
+                )
+                return
+            }
+        }
+    }
+
+    private struct ZoneChangesResult {
+        var modifications: [CKRecord]
+        var deletions: [(recordID: CKRecord.ID, recordType: CKRecord.RecordType)]
+        var newToken: CKServerChangeToken?
+        var moreComing: Bool
+    }
+
+    private func fetchZoneChanges(
+        token: CKServerChangeToken?
+    ) async throws -> ZoneChangesResult {
+        try await withCheckedThrowingContinuation { continuation in
+            var modifications: [CKRecord] = []
+            var deletions: [(CKRecord.ID, CKRecord.RecordType)] = []
+            var newToken: CKServerChangeToken? = token
+            var moreComing = false
+            var firstError: Error?
+
+            let zoneConfig = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
+                previousServerChangeToken: token
+            )
+            let operation = CKFetchRecordZoneChangesOperation(
+                recordZoneIDs: [Self.zoneID],
+                configurationsByRecordZoneID: [Self.zoneID: zoneConfig]
+            )
+
+            operation.recordWasChangedBlock = { _, result in
+                switch result {
+                case .success(let record):
+                    modifications.append(record)
+                case .failure(let error):
+                    if firstError == nil { firstError = error }
+                }
+            }
+
+            operation.recordWithIDWasDeletedBlock = { id, type in
+                deletions.append((id, type))
+            }
+
+            operation.recordZoneChangeTokensUpdatedBlock = { _, token, _ in
+                if let token { newToken = token }
+            }
+
+            operation.recordZoneFetchResultBlock = { _, result in
+                switch result {
+                case .success(let response):
+                    newToken = response.serverChangeToken
+                    moreComing = response.moreComing
+                case .failure(let error):
+                    if firstError == nil { firstError = error }
+                }
+            }
+
+            operation.fetchRecordZoneChangesResultBlock = { result in
+                if let firstError {
+                    continuation.resume(throwing: firstError)
+                    return
+                }
+                switch result {
+                case .success:
+                    continuation.resume(returning: ZoneChangesResult(
+                        modifications: modifications,
+                        deletions: deletions,
+                        newToken: newToken,
+                        moreComing: moreComing
+                    ))
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            self.container.privateCloudDatabase.add(operation)
+        }
+    }
+
+    @MainActor
+    private func applyManualPullChanges(
+        modifications: [CKRecord],
+        deletions: [(recordID: CKRecord.ID, recordType: CKRecord.RecordType)],
+        source: String
+    ) async {
+        guard let modelContainer else { return }
+        let ctx = ModelContext(modelContainer)
+
+        for record in modifications {
+            let name = record.recordID.recordName
+            switch record.recordType {
+            case RecordType.clipping:
+                upsertClipping(record: record, recordName: name, ctx: ctx)
+            case RecordType.clipList:
+                upsertClipList(record: record, recordName: name, ctx: ctx)
+            default:
+                Self.profileLogger.log(
+                    "manualPull unknownType source=\(source, privacy: .public) type=\(record.recordType, privacy: .public)"
+                )
+            }
+        }
+
+        var hardDeletedClippings = 0
+        var hardDeletedLists = 0
+        for (id, type) in deletions {
+            let name = id.recordName
+            switch type {
+            case RecordType.clipping:
+                let desc = FetchDescriptor<Clipping>(
+                    predicate: #Predicate<Clipping> { $0.clippingID == name }
+                )
+                if let row = try? ctx.fetch(desc).first {
+                    ctx.delete(row)
+                    hardDeletedClippings += 1
+                    Self.profileLogger.log(
+                        "manualPull hardDeleteClipping source=\(source, privacy: .public) id=\(name, privacy: .public)"
+                    )
+                }
+            case RecordType.clipList:
+                let desc = FetchDescriptor<ClipList>(
+                    predicate: #Predicate<ClipList> { $0.listID == name }
+                )
+                if let row = try? ctx.fetch(desc).first {
+                    ctx.delete(row)
+                    hardDeletedLists += 1
+                    Self.profileLogger.log(
+                        "manualPull hardDeleteList source=\(source, privacy: .public) id=\(name, privacy: .public)"
+                    )
+                }
+            default:
+                break
+            }
+        }
+
+        try? ctx.save()
+
+        if !modifications.isEmpty || !deletions.isEmpty {
+            let mainCtx = modelContainer.mainContext
+            if mainCtx !== ctx {
+                mainCtx.processPendingChanges()
+            }
+
+            let activeDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> { $0.deleteDate == nil }
+            )
+            let trashDesc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> { $0.deleteDate != nil }
+            )
+            let activeCount = (try? ctx.fetchCount(activeDesc)) ?? -1
+            let trashCount = (try? ctx.fetchCount(trashDesc)) ?? -1
+            Self.profileLogger.log(
+                "manualPull applied source=\(source, privacy: .public) modifications=\(modifications.count) hardDeletes=\(hardDeletedClippings + hardDeletedLists) active=\(activeCount) trash=\(trashCount)"
+            )
+            SyncTicker.shared.bump()
+            syncMonitor?.applyExternalStatus(SyncMonitor.SyncStatus.synced(Date()))
+        }
+
+        for record in modifications {
+            rememberSystemFields(of: record)
+        }
+    }
+
+    private func decodedManualPullToken() -> CKServerChangeToken? {
+        let data = stateQueue.sync { persisted.manualPullZoneToken }
+        guard let data else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(
+            ofClass: CKServerChangeToken.self,
+            from: data
+        )
+    }
+
+    private func encodeManualPullToken(_ token: CKServerChangeToken) {
+        guard let data = try? NSKeyedArchiver.archivedData(
+            withRootObject: token, requiringSecureCoding: true
+        ) else { return }
+        stateQueue.sync {
+            persisted.manualPullZoneToken = data
+        }
+        persist()
     }
 
     /// Called by every Clipping / ClipList / Asset mutation site (Phase 3
     /// wires these). Safe to call before the engine has started — changes
     /// buffer up and flush on first `sendChanges`.
+    ///
+    /// After queueing the change we nudge an immediate `sendChanges()`
+    /// on a detached Task. CKSyncEngine de-duplicates overlapping send
+    /// cycles internally, so rapid-fire enqueues collapse into a single
+    /// upload. Without the explicit nudge the engine's scheduler can
+    /// defer the upload by minutes under some network/system-load
+    /// conditions — Apple's recommended pattern is "kick upload
+    /// immediately when the user has just mutated data."
     public func enqueueChange(recordID: CKRecord.ID) {
         engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        Task.detached { [weak self] in await self?.sendChanges() }
     }
 
     public func enqueueDelete(recordID: CKRecord.ID) {
         engine?.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+        Task.detached { [weak self] in await self?.sendChanges() }
     }
 
     /// Nuke-everything path: wipes every local Clipping/ClipList row,
@@ -352,6 +741,11 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         }
         let parent = stateFileURL.deletingLastPathComponent()
         try? FileManager.default.removeItem(at: parent)
+
+        // Bump SyncTicker so every @Observable-bound view (popover
+        // especially) recomputes against the now-empty store even if
+        // it was not focused during the wipe.
+        SyncTicker.shared.bump()
     }
 
     // MARK: - Record-ID builders
@@ -379,41 +773,78 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             // Persist engine state on every update so restarts resume
             // from the latest server-change token instead of full refetch.
             persisted.stateSerialization = e.stateSerialization
+            Self.profileLogger.log(
+                "event stateUpdate hasStateSerialization=\(self.persisted.stateSerialization != nil) didSeedUpload=\(self.persisted.didSeedUpload) pendingListRefs=\(self.persisted.pendingListReferences.count)"
+            )
             persist()
 
         case .accountChange(let e):
             await handleAccountChange(e)
 
         case .fetchedDatabaseChanges(let e):
+            await MainActor.run {
+                self.currentFetchOutcome?.sawDatabaseChanges = true
+            }
             // Zone create/delete events. We only care about our `copied`
             // zone; Phase 4 fills in zone-deletion handling (user signed
             // out + back in → need to reseed).
-            _ = e
+            Self.profileLogger.log(
+                "event fetchedDatabaseChanges payload=\(String(describing: e), privacy: .public)"
+            )
 
         case .fetchedRecordZoneChanges(let e):
+            await MainActor.run {
+                self.currentFetchOutcome?.sawRecordZoneChanges = true
+                self.currentFetchOutcome?.modificationCount += e.modifications.count
+                self.currentFetchOutcome?.deletionCount += e.deletions.count
+            }
+            Self.profileLogger.log(
+                "event fetchedRecordZoneChanges modifications=\(e.modifications.count) deletions=\(e.deletions.count)"
+            )
             await handleFetchedRecordZoneChanges(e)
 
         case .sentRecordZoneChanges(let e):
             await handleSentRecordZoneChanges(e)
 
         case .willFetchChanges:
+            Self.profileLogger.log("event willFetchChanges")
             await updateStatus(SyncMonitor.SyncStatus.syncing(direction: "Checking…"))
 
         case .willSendChanges:
+            Self.profileLogger.log("event willSendChanges")
             await updateStatus(SyncMonitor.SyncStatus.syncing(direction: "Uploading…"))
 
         case .didFetchChanges:
+            Self.profileLogger.log("event didFetchChanges")
             // If we didn't flip to `.synced(...)` from the modifications
             // path, fall back to `.available` so the label doesn't lie
             // with a stale "Synced Xm ago".
             await updateStatusIfSyncing(SyncMonitor.SyncStatus.available)
 
         case .didSendChanges:
+            Self.profileLogger.log("event didSendChanges")
             await updateStatusIfSyncing(SyncMonitor.SyncStatus.available)
 
-        case .sentDatabaseChanges, .willFetchRecordZoneChanges,
-             .didFetchRecordZoneChanges:
-            break
+        case .sentDatabaseChanges(let e):
+            Self.profileLogger.log(
+                "event sentDatabaseChanges payload=\(String(describing: e), privacy: .public)"
+            )
+
+        case .willFetchRecordZoneChanges(let e):
+            await MainActor.run {
+                self.currentFetchOutcome?.sawWillFetchRecordZoneChanges = true
+            }
+            Self.profileLogger.log(
+                "event willFetchRecordZoneChanges payload=\(String(describing: e), privacy: .public)"
+            )
+
+        case .didFetchRecordZoneChanges(let e):
+            await MainActor.run {
+                self.currentFetchOutcome?.sawDidFetchRecordZoneChanges = true
+            }
+            Self.profileLogger.log(
+                "event didFetchRecordZoneChanges payload=\(String(describing: e), privacy: .public)"
+            )
 
         @unknown default:
             NSLog("[CopiedSyncEngine] unknown event: \(event)")
@@ -439,6 +870,15 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         let scope = context.options.scope
         let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
         guard !changes.isEmpty else { return nil }
+        let saveCount = changes.reduce(into: 0) { count, change in
+            if case .saveRecord = change { count += 1 }
+        }
+        let deleteCount = changes.reduce(into: 0) { count, change in
+            if case .deleteRecord = change { count += 1 }
+        }
+        Self.profileLogger.log(
+            "nextRecordZoneChangeBatch scope=\(String(describing: scope), privacy: .public) total=\(changes.count) saves=\(saveCount) deletes=\(deleteCount)"
+        )
 
         // Snapshot the container reference on-actor — the closure below
         // runs on the engine's executor.
@@ -548,7 +988,10 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // Hop onto main actor to mutate SwiftData — ModelContext ops
         // on @Model types require main-actor or per-context isolation.
         // We use a dedicated context created on main so we don't
-        // collide with @Query observers on the shared mainContext.
+        // collide with SwiftUI's view-tree render cycle against
+        // mainContext (mid-render mainContext writes were correlated
+        // with degraded @Query refresh reliability — reverted after
+        // a short experiment).
         await MainActor.run {
             let ctx = ModelContext(modelContainer)
 
@@ -581,6 +1024,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             // acceptable tradeoff.
             for deletion in event.deletions {
                 let recordName = deletion.recordID.recordName
+                NSLog("[CopiedSyncEngine] apply delete type=\(deletion.recordType) id=\(recordName)")
                 switch deletion.recordType {
                 case RecordType.clipping:
                     let desc = FetchDescriptor<Clipping>(
@@ -603,8 +1047,48 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
             try? ctx.save()
 
-            // Real import landed → honest status.
+            // Cross-context refresh bridge. SwiftData normally auto-merges
+            // saves between contexts backed by the same ModelContainer, but
+            // the receiving context only processes the merge at its own
+            // `processPendingChanges()` tick. Calling it explicitly on
+            // mainContext after the detached import saves is what makes
+            // main-window @Query observers pick up iOS-side deletes in
+            // real time — regardless of whether the window is visible,
+            // minimized, or hidden.
             if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                let mainCtx = modelContainer.mainContext
+                if mainCtx !== ctx {
+                    NSLog("[CopiedSyncEngine] processPendingChanges modifications=\(event.modifications.count) deletions=\(event.deletions.count)")
+                    mainCtx.processPendingChanges()
+                }
+            }
+
+            if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                let activeDesc = FetchDescriptor<Clipping>(
+                    predicate: #Predicate<Clipping> { $0.deleteDate == nil }
+                )
+                let trashDesc = FetchDescriptor<Clipping>(
+                    predicate: #Predicate<Clipping> { $0.deleteDate != nil }
+                )
+                let activeCount = (try? ctx.fetchCount(activeDesc)) ?? -1
+                let trashCount = (try? ctx.fetchCount(trashDesc)) ?? -1
+                Self.profileLogger.log(
+                    "postImportCounts active=\(activeCount) trash=\(trashCount) modifications=\(event.modifications.count) deletions=\(event.deletions.count)"
+                )
+            }
+
+            // Real import landed → bump SyncTicker so the popover's
+            // @Observable-bound recompute runs, and honest-up the status.
+            // With NSPCKC disabled (Q1), `NSPersistentStoreRemoteChange`
+            // doesn't fire for CKSyncEngine's private-context saves — so
+            // the only way the popover learns a delete landed is this
+            // explicit bump. The main window's @Query observers pick up
+            // changes natively via SwiftData's coordinator, so this bump
+            // is harmless there but critical for popover refresh when
+            // the main window is closed.
+            if !event.modifications.isEmpty || !event.deletions.isEmpty {
+                NSLog("[CopiedSyncEngine] bump SyncTicker modifications=\(event.modifications.count) deletions=\(event.deletions.count)")
+                SyncTicker.shared.bump()
                 syncMonitor?.applyExternalStatus(SyncMonitor.SyncStatus.synced(Date()))
             }
         }
@@ -628,6 +1112,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     private func handleSentRecordZoneChanges(
         _ event: CKSyncEngine.Event.SentRecordZoneChanges
     ) async {
+        Self.profileLogger.log(
+            "handleSentRecordZoneChanges saved=\(event.savedRecords.count) deleted=\(event.deletedRecordIDs.count) failed=\(event.failedRecordSaves.count)"
+        )
         // Successful save → record's system fields now carry the
         // server-assigned etag. Cache for the next UPDATE cycle AND
         // clean up the outbound CKAsset blob temp files.
@@ -655,17 +1142,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             let recordID = failure.record.recordID
             switch failure.error.code {
             case .serverRecordChanged:
-                // The server's record for this ID has a newer etag than
-                // what we sent. The error carries `serverRecord` — cache
-                // its system fields so the NEXT send uses them as base.
-                // Leave the pending change in place so CKSyncEngine
-                // retries (now armed with correct etag). This is the
-                // canonical Apple-recommended pattern from their
-                // sample-cloudkit-sync-engine repo.
+                // The server has a newer etag than what we sent. Do
+                // three things, per the canonical pattern (Apple's
+                // sample-cloudkit-sync-engine + WWDC'23 guidance):
+                // 1. Cache server's system fields (etag) for next send
+                // 2. Merge server's field values into local row (LWW)
+                // 3. Re-enqueue the pending change to force a fresh
+                //    nextRecordZoneChangeBatch cycle that's guaranteed
+                //    to pick up the updated etag cache
                 if let serverRecord = failure.error.serverRecord {
                     rememberSystemFields(of: serverRecord)
+                    await mergeServerIntoLocal(serverRecord: serverRecord)
+                    engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                    engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 }
-                // Don't remove — let the engine retry with updated base.
             case .zoneNotFound, .userDeletedZone:
                 // Our zone was deleted (user signed out + back in?).
                 // Re-enqueue zone create + re-try this record save.
@@ -696,11 +1186,21 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // .deleteRecord so CloudKit drops the garbage on its next sync.
         // An existing local row with real content is still updated — the
         // shell-check only applies to records we'd be inserting fresh.
+        // Shell = no content AT ALL. Must check every content signal
+        // or we'll wrongly delete legitimate rich-text / HTML rows
+        // (text/title/url are empty for those but hasRichText/hasHTML
+        // is true, and extractedText carries the plain-text preview).
         let text = (record["text"] as? String) ?? ""
         let title = (record["title"] as? String) ?? ""
         let url = (record["url"] as? String) ?? ""
+        let sourceURL = (record["sourceURL"] as? String) ?? ""
+        let extractedText = (record["extractedText"] as? String) ?? ""
         let hasImage = (record["hasImage"] as? Bool) ?? false
-        let isShell = text.isEmpty && title.isEmpty && url.isEmpty && !hasImage
+        let hasRichText = (record["hasRichText"] as? Bool) ?? false
+        let hasHTML = (record["hasHTML"] as? Bool) ?? false
+        let isShell = text.isEmpty && title.isEmpty && url.isEmpty
+            && sourceURL.isEmpty && extractedText.isEmpty
+            && !hasImage && !hasRichText && !hasHTML
 
         let desc = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { $0.clippingID == recordName }
@@ -740,6 +1240,16 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 }
             )
             if let local = try? ctx.fetch(hashMatchDesc).first {
+                // Q6: mixed-version fleets — a row created before the
+                // contentHash migration stays with an empty hash until
+                // something populates it. The lookup above keyed on
+                // matching-hash couldn't have reached a row whose hash
+                // is still empty, but in case upstream widens the
+                // predicate we still want local's hash adopted so the
+                // tiebreak reasons over a consistent key.
+                if local.contentHash.isEmpty {
+                    local.contentHash = incomingHash
+                }
                 if local.clippingID < recordName {
                     // Local UUID wins — drop the incoming from cloud.
                     engine?.state.add(pendingRecordZoneChanges: [
@@ -761,6 +1271,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
         let incomingModified = record["modifiedDate"] as? Date
         let incomingDeleteDate = record["deleteDate"] as? Date
+        Self.profileLogger.log(
+            "upsertClipping id=\(recordName, privacy: .public) existing=\(existing != nil) incomingDeleted=\(incomingDeleteDate != nil) incomingModified=\(String(describing: incomingModified), privacy: .public)"
+        )
 
         if let existing {
             // deleteDate override: trash is one-way. If EITHER side has
@@ -770,8 +1283,14 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             // just deleted.
             let localDeleted = existing.deleteDate != nil
             let incomingDeleted = incomingDeleteDate != nil
+            Self.profileLogger.log(
+                "upsertClipping existing id=\(recordName, privacy: .public) localDeleted=\(localDeleted) incomingDeleted=\(incomingDeleted) localModified=\(String(describing: existing.modifiedDate), privacy: .public)"
+            )
             if !localDeleted && incomingDeleted {
                 // Remote trashed it; accept the delete state.
+                Self.profileLogger.log(
+                    "upsertClipping branch=remoteTrashWins id=\(recordName, privacy: .public)"
+                )
                 CKRecordMapper.apply(record, to: existing)
                 resolveListReference(
                     for: existing, record: record, recordName: recordName, ctx: ctx
@@ -781,6 +1300,28 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             if localDeleted && !incomingDeleted {
                 // Local already in trash; ignore incoming un-trashed
                 // version (means peer hasn't yet seen our trash).
+                Self.profileLogger.log(
+                    "upsertClipping branch=keepLocalTrash id=\(recordName, privacy: .public)"
+                )
+                return
+            }
+            // Both sides trashed (Q4). Canonical rule: preserve the
+            // EARLIEST `deleteDate` so the `trashRetentionDays` purge
+            // window converges on both devices. Without this, a later
+            // LWW apply would overwrite local's earlier trash timestamp
+            // with a newer one, resetting the auto-purge countdown.
+            if localDeleted, incomingDeleted,
+               let localDelete = existing.deleteDate,
+               let incomingDelete = incomingDeleteDate,
+               localDelete < incomingDelete {
+                Self.profileLogger.log(
+                    "upsertClipping branch=preserveEarliestTrashDate id=\(recordName, privacy: .public) localDelete=\(String(describing: localDelete), privacy: .public) incomingDelete=\(String(describing: incomingDelete), privacy: .public)"
+                )
+                CKRecordMapper.apply(record, to: existing)
+                existing.deleteDate = localDelete
+                resolveListReference(
+                    for: existing, record: record, recordName: recordName, ctx: ctx
+                )
                 return
             }
 
@@ -789,13 +1330,22 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             if let localModified = existing.modifiedDate,
                let incomingModified,
                localModified > incomingModified {
+                Self.profileLogger.log(
+                    "upsertClipping branch=dropOlderRemote id=\(recordName, privacy: .public)"
+                )
                 return  // local is newer; drop this remote update
             }
+            Self.profileLogger.log(
+                "upsertClipping branch=applyRemote id=\(recordName, privacy: .public)"
+            )
             CKRecordMapper.apply(record, to: existing)
             resolveListReference(
                 for: existing, record: record, recordName: recordName, ctx: ctx
             )
         } else {
+            Self.profileLogger.log(
+                "upsertClipping branch=insertNew id=\(recordName, privacy: .public) incomingDeleted=\(incomingDeleteDate != nil)"
+            )
             let clipping = Clipping()
             clipping.clippingID = recordName
             ctx.insert(clipping)
@@ -884,6 +1434,40 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             predicate: #Predicate<ClipList> { $0.listID == listID }
         )
         return try? ctx.fetch(desc).first
+    }
+
+    /// On `serverRecordChanged` conflict: merge the server's field
+    /// values into the local row. Canonical LWW:
+    ///   - either-side `deleteDate != nil` wins (tombstone beats edit)
+    ///   - otherwise newer `modifiedDate` wins (whole-record granularity)
+    ///   - earliest `deleteDate` preserved (consistent purge-window)
+    /// Runs via MainActor.run so SwiftData + @Query observers stay safe.
+    private func mergeServerIntoLocal(serverRecord: CKRecord) async {
+        guard let modelContainer else { return }
+        let recordName = serverRecord.recordID.recordName
+        await MainActor.run {
+            let ctx = ModelContext(modelContainer)
+            let desc = FetchDescriptor<Clipping>(
+                predicate: #Predicate<Clipping> { $0.clippingID == recordName }
+            )
+            guard let local = try? ctx.fetch(desc).first else { return }
+            let serverModified = serverRecord["modifiedDate"] as? Date
+            let serverDeleteDate = serverRecord["deleteDate"] as? Date
+            let localDeleted = local.deleteDate != nil
+            let serverDeleted = serverDeleteDate != nil
+            if serverDeleted && !localDeleted {
+                CKRecordMapper.apply(serverRecord, to: local)
+            } else if !serverDeleted && localDeleted {
+                // Keep local deletion; don't let server un-trash
+            } else if let localMod = local.modifiedDate,
+                      let serverMod = serverModified,
+                      localMod > serverMod {
+                // Local is newer; keep our version as-is
+            } else {
+                CKRecordMapper.apply(serverRecord, to: local)
+            }
+            try? ctx.save()
+        }
     }
 
     // MARK: - Outbound blob cleanup

@@ -34,15 +34,11 @@ final class SettingsWindowController: NSObject {
         ensureWindow()
     }
 
-    /// Bring the Settings window to front. Activates the app first so the
-    /// window actually comes forward even for `.accessory`-policy processes.
+    /// Bring the Settings window to front.
     func show() {
         ensureWindow()
         guard let window else { return }
 
-        if NSApp.activationPolicy() == .accessory {
-            NSApp.setActivationPolicy(.regular)
-        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }

@@ -244,19 +244,18 @@ struct ClipboardScreen: View {
         case .empty:
             return
         }
-        modelContext.insert(clip)
-        do {
-            try modelContext.save()
+        // Canonical insert pipeline: hash-dedup + CloudKit enqueue.
+        // Hitting "Save to Copied" on the same image twice merges into
+        // the existing row instead of creating a second copy.
+        switch ClipboardService.insertOrMerge(clip, in: modelContext) {
+        case .inserted, .merged:
             savedToast = .saved
-            // Revert the button label after a short window so the user
-            // can save again if the clipboard changes.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1.5))
                 if case .saved = savedToast { savedToast = .idle }
             }
-        } catch {
-            modelContext.delete(clip)
-            savedToast = .failed(error.localizedDescription)
+        case .rejected:
+            savedToast = .failed("Nothing to save")
         }
     }
 }

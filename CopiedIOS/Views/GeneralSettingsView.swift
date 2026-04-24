@@ -9,7 +9,9 @@ struct GeneralSettingsView: View {
     // and `CopiedMac/Views/SettingsView.swift` — the `@AppStorage` keys round-trip
     // through iCloud's NSUbiquitousKeyValueStore, so whichever platform writes
     // first wins. Divergent defaults create silent settings drift.
-    @AppStorage("allowDuplicates") private var allowDuplicates = false
+    // Q7: `allowDuplicates` removed. Dedup runs unconditionally via
+    // contentHash at `ClipboardService.insertOrMerge` time, so there is
+    // no user-facing toggle and no "Remove Duplicates" button.
     @AppStorage("captureImages") private var captureImages = true
     @AppStorage("captureRichText") private var captureRichText = true
     @AppStorage("maxHistorySize") private var maxHistorySize = 5000
@@ -18,8 +20,6 @@ struct GeneralSettingsView: View {
     @AppStorage("trashRetentionDays") private var trashRetentionDays = 30
 
     @Environment(\.modelContext) private var modelContext
-    @State private var presentsDedupConfirm = false
-    @State private var dedupResultMessage: String?
     @State private var presentsDeleteAllConfirm = false
     @State private var presentsDeleteAllComplete = false
 
@@ -27,7 +27,6 @@ struct GeneralSettingsView: View {
 
     private var captureSection: some View {
         Section("Capture") {
-            Toggle("Allow Duplicates", isOn: $allowDuplicates)
             Toggle("Capture Images", isOn: $captureImages)
             Toggle("Capture Rich Text", isOn: $captureRichText)
         }
@@ -41,27 +40,6 @@ struct GeneralSettingsView: View {
                     value: $retentionDays, in: -1...365, step: 1)
             Stepper("Trash: \(trashRetentionDays) days",
                     value: $trashRetentionDays, in: 1...90, step: 1)
-        }
-    }
-
-    private var removeDuplicatesSection: some View {
-        Section {
-            Button {
-                presentsDedupConfirm = true
-            } label: {
-                HStack {
-                    Text("Remove Duplicates")
-                        .foregroundStyle(Color.copiedTeal)
-                    Spacer()
-                    if let msg = dedupResultMessage {
-                        Text(msg)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        } footer: {
-            Text("Scans your history for clippings with identical content and moves all but the earliest copy to Trash. Recoverable for the next \(trashRetentionDays) days.")
         }
     }
 
@@ -87,7 +65,6 @@ struct GeneralSettingsView: View {
         Form {
             captureSection
             historySection
-            removeDuplicatesSection
             dangerZoneSection
         }
         .scrollContentBackground(.hidden)
@@ -95,17 +72,6 @@ struct GeneralSettingsView: View {
         .navigationTitle("General")
         .tint(.copiedTeal)
         .preferredColorScheme(.dark)
-        .confirmationDialog("Remove duplicates?", isPresented: $presentsDedupConfirm, titleVisibility: .visible) {
-            Button("Scan & Move Duplicates to Trash", role: .destructive) {
-                let removed = ClipboardService.removeDuplicates(in: modelContext)
-                dedupResultMessage = removed == 0
-                    ? "No duplicates found"
-                    : "Moved \(removed) to Trash"
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Clippings with identical content will be moved to Trash. The earliest copy of each is kept.")
-        }
         .confirmationDialog(
             "Delete all Copied data?",
             isPresented: $presentsDeleteAllConfirm,

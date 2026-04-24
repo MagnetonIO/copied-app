@@ -51,8 +51,42 @@ enum SharedIOSData {
     }()
 }
 
+/// Receives APNs silent-push callbacks and forwards them to CKSyncEngine
+/// so inbound CloudKit changes fetch without requiring the user to open
+/// the app. Without this hook, `UIApplication.registerForRemoteNotifications()`
+/// succeeds but pushes arrive and are discarded — the engine only syncs
+/// on launch / foreground, which is why the user saw "nothing syncs on
+/// iOS" until the app was refocused.
+final class CopiedIOSAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task {
+            await CopiedSyncEngine.shared.fetchChanges()
+            completionHandler(.newData)
+        }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NSLog("[CopiedIOSApp] registered for remote notifications, token=\(deviceToken.count) bytes")
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NSLog("[CopiedIOSApp] remote notification registration failed: \(error.localizedDescription)")
+    }
+}
+
 @main
 struct CopiedIOSApp: App {
+    @UIApplicationDelegateAdaptor(CopiedIOSAppDelegate.self) private var appDelegate
     @State private var clipboardService = ClipboardService()
     @Environment(\.scenePhase) private var scenePhase
 

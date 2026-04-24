@@ -220,8 +220,11 @@ struct SaveClippingSheet: View {
             clip.list = lists.first { $0.listID == selectedListID }
         }
 
-        modelContext.insert(clip)
-        try? modelContext.save()
+        // Canonical insert pipeline: empty-shell guard + hash-dedup +
+        // CloudKit enqueue. Manual Save sheet paths historically
+        // bypassed every safeguard, which is how iOS produced ghost
+        // rows and Share-sheet entries failed to reach the Mac.
+        ClipboardService.insertOrMerge(clip, in: modelContext)
         dismiss()
     }
 }

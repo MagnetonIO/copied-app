@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import CopiedKit
+import OSLog
 
 /// Shared container — single instance used by both popover and window.
 enum SharedData {
@@ -47,6 +48,9 @@ enum SharedData {
 struct CopiedMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
+    /// Controls MenuBarExtra popover visibility. `GlobalHotkeyManager`
+    /// toggles this binding so ⌃⇧C opens/closes the popover.
+    @State private var menuBarExtraIsPresented: Bool = false
 
     var body: some Scene {
         Window("Copied", id: "main") {
@@ -55,22 +59,39 @@ struct CopiedMacApp: App {
                 .environment(appDelegate.pasteQueue)
                 .environment(appDelegate.appState)
                 .environment(appDelegate.syncMonitor)
+                .environment(SyncTicker.shared)
                 .onOpenURL { url in
                     handleIncomingURL(url)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)) { _ in
-                    // CloudKit just imported changes from iOS. Force the
-                    // main context to process them so @Query observers
-                    // re-evaluate their predicates — without this, a
-                    // clipping that iOS marked `deleteDate = now` still
-                    // appears in the Mac main list until the app relaunches.
-                    SharedData.container.mainContext.processPendingChanges()
                 }
         }
         .modelContainer(SharedData.container)
         .defaultSize(width: 900, height: 600)
         .defaultPosition(.center)
         .handlesExternalEvents(matching: ["copied"])
+
+        // MenuBarExtra hosts the popover as a full SwiftUI Scene. The
+        // scene body (including every `@Query` inside `PopoverView`) is
+        // alive for the app's lifetime, whether the popover is shown or
+        // not — which is what makes CKSyncEngine imports visibly
+        // update the popover in real time without requiring the user
+        // to open the main window. Pre-2025 this path was an
+        // NSPopover + NSHostingController built by `StatusBarController`;
+        // migrating to MenuBarExtra eliminated the @Query-not-observing
+        // dead time that manifested as "sync only works when I click
+        // the main window."
+        MenuBarExtra(isInserted: .constant(true)) {
+            PopoverView()
+                .environment(appDelegate.clipboardService)
+                .environment(appDelegate.pasteQueue)
+                .environment(appDelegate.appState)
+                .environment(appDelegate.syncMonitor)
+                .environment(SyncTicker.shared)
+                .frame(width: 400, height: 540)
+        } label: {
+            Image(systemName: "list.clipboard")
+        }
+        .menuBarExtraStyle(.window)
+        .modelContainer(SharedData.container)
 
         // Settings is served by SettingsWindowController (AppKit NSWindow), not by
         // SwiftUI's `Settings { }` scene — the scene's prefs-panel window snaps back
@@ -115,12 +136,15 @@ struct CopiedMacApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let syncProfileLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "Copied",
+        category: "SyncProfile"
+    )
     // Register defaults early so they're available when stored properties initialize
     private static let _registerDefaults: Void = {
         UserDefaults.standard.register(defaults: [
             "captureImages": true,
             "captureRichText": true,
-            "allowDuplicates": false,
             "pasteAndClose": true,
             "cloudSyncEnabled": true,
             "popoverItemCount": 100,
@@ -128,7 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "stripURLTrackingParams": true,
             "retentionDays": 30,          // was -1 (unlimited) — 30 day default
             "trashRetentionDays": 30,
-            "iCloudSyncPurchased": false
+            "iCloudSyncPurchased": false,
+            "showWindowOnLaunch": false
         ])
     }()
 
@@ -147,8 +172,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `CopiedSyncEngine.syncNow()` which is fully async — no
     /// main-thread stall.
     private var didBecomeActiveObserver: NSObjectProtocol?
+    private var didBecomeKeyWindowObserver: NSObjectProtocol?
     private var didWakeObserver: NSObjectProtocol?
-    private var syncTimer: Timer?
+    /// Observer for the darwin notification posted by `GlobalHotkeyManager`
+    /// when ⌃⇧C fires. The handler programmatically clicks the
+    /// MenuBarExtra status-bar button, which opens the popover the
+    /// same code path a real click takes.
+    private var hotkeyToggleObserver: NSObjectProtocol?
+    /// NSEvent local monitor for right-click on the menu bar icon.
+    /// MenuBarExtra owns the status item and shows the popover on
+    /// left-click; we monitor right-click on its host window and
+    /// surface our own context menu (Settings / Open Main Window /
+    /// Quit) — the standard Mac convention for menu-bar utilities.
+    private var menuBarRightClickMonitor: Any?
+    private var syncBackstopTimer: Timer?
     let pasteQueue = PasteQueueService()
     let appState = AppState()
     let syncMonitor = SyncMonitor()
@@ -178,11 +215,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = LicenseStore.refreshFromKeychain()
         #endif
 
-        // Hide from Dock by default (menu bar only)
-        let showInDock = UserDefaults.standard.bool(forKey: "showInDock")
-        if !showInDock {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        // Activation policy stays `.regular` (Info.plist `LSUIElement=false`).
+        // Dock icon is always present; the main window is hidden on launch
+        // via the `showWindowOnLaunch` default below.
 
         let ctx = ModelContext(SharedData.container)
         clipboardService.configure(modelContext: ctx)
@@ -220,26 +255,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Background sync triggers — compensate for flaky silent-push
-        // delivery on dev-signed Mac binaries. All call the fully-async
-        // `CopiedSyncEngine.syncNow()` so there's no main-thread work.
+        // delivery on dev-signed Mac binaries. Keep the reliable
+        // fallback at the app layer rather than hanging correctness off
+        // which SwiftUI scene happens to be focused.
         //
         // 1. App activation (Cmd-Tab back, Dock click): immediate catch-up
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil, queue: .main
         ) { _ in
-            Task.detached { await CopiedSyncEngine.shared.syncNow() }
+            self.syncProfileLogger.log("trigger didBecomeActive")
+            Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.didBecomeActive") }
+        }
+        // 1b. Window-key transitions are the strongest concrete signal we
+        // have for MenuBarExtra visibility. `scenePhase` has proven too
+        // weak for the popover, but the hosting NSWindow becoming key is
+        // reliable and lines up with the "user opened a surface, sync it
+        // now" behavior we want.
+        didBecomeKeyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            guard let window = note.object as? NSWindow else { return }
+            Task { @MainActor in
+                let className = String(describing: type(of: window))
+                let title = window.title
+                let source: String = (title == "Copied")
+                    ? "mac.mainWindow.didBecomeKey"
+                    : "mac.window.didBecomeKey"
+
+                self.syncProfileLogger.log(
+                    "trigger windowDidBecomeKey source=\(source, privacy: .public) class=\(className, privacy: .public) title=\(title, privacy: .public)"
+                )
+                Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: source) }
+            }
         }
         // 2. Wake from sleep: network just came back, force a pull
         didWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { _ in
-            Task.detached { await CopiedSyncEngine.shared.syncNow() }
+            self.syncProfileLogger.log("trigger didWake")
+            Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.didWake") }
         }
-        // 3. Periodic backstop every 60 s so idle sessions still converge
-        syncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            Task.detached { await CopiedSyncEngine.shared.syncNow() }
+        // 3. App-lifetime backstop. This is intentionally NOT gated on
+        // NSApp.isActive / scenePhase because menu bar interaction and
+        // Scene activation have proven too brittle to trust for sync
+        // correctness.
+        syncBackstopTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+            self.syncProfileLogger.log("trigger appTimer")
+            // Use manualInboundFetch — `engine.fetchChanges()` is a no-op
+            // on this path because macOS withholds CloudKit silent pushes
+            // from the background menu-bar app. The manual fetch issues a
+            // real `CKFetchRecordZoneChangesOperation` against our own
+            // change token. Cooldown gate (3s) lives inside the engine.
+            Task.detached { await CopiedSyncEngine.shared.manualInboundFetch(source: "mac.appTimer") }
+        }
+        if let syncBackstopTimer {
+            RunLoop.main.add(syncBackstopTimer, forMode: .common)
         }
 
         // CloudKit continuous sync: register for remote notifications so
@@ -274,16 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = PurchaseManager.shared
         #endif
 
-        // Set up status bar popover
-        StatusBarController.shared.appState = appState
-        StatusBarController.shared.setup {
-            PopoverView()
-                .environment(self.clipboardService)
-                .environment(self.pasteQueue)
-                .environment(self.appState)
-                .environment(self.syncMonitor)
-                .modelContainer(SharedData.container)
-        }
+        // Menubar popover is now served by `MenuBarExtra` in
+        // `CopiedMacApp.body`. `StatusBarController` is deleted.
 
         // Set up the Settings window (AppKit NSWindow hosting the SwiftUI SettingsView).
         // Materialized immediately so opening it on first click is instant.
@@ -296,9 +362,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        // Register global hotkey (⌃⇧C)
+        // Register global hotkey (⌃⇧C). Posts a darwin notification
+        // that `CopiedMacApp` (which owns the MenuBarExtra's
+        // `isInserted` binding) observes — toggles popover visibility.
         GlobalHotkeyManager.shared.register {
-            StatusBarController.shared.togglePopover()
+            NotificationCenter.default.post(
+                name: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+                object: nil
+            )
+        }
+
+        // Observe the hotkey notification and route it to the
+        // MenuBarExtra's underlying NSStatusBarButton. MenuBarExtra
+        // does not expose a programmatic "open popover" API, so we
+        // find the status item button in the app's window list and
+        // performClick on it — that drives the same code path as a
+        // real user click on the menu bar icon.
+        hotkeyToggleObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            self.toggleMenuBarPopover()
+        }
+
+        // Right-click on the menu bar icon → context menu.
+        // MenuBarExtra hosts the status item button in a window
+        // whose class name contains "StatusBar". A local NSEvent
+        // monitor sees right-click events targeting that window and
+        // shows our NSMenu instead of letting the click propagate
+        // (which would either no-op or open the regular popover).
+        menuBarRightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            guard let self else { return event }
+            guard let button = self.findMenuBarExtraButton(),
+                  let buttonWindow = button.window,
+                  event.window === buttonWindow else {
+                return event
+            }
+            DispatchQueue.main.async {
+                self.showMenuBarRightClickMenu(from: button)
+            }
+            return nil
         }
 
         // Prompt for accessibility
@@ -331,6 +435,140 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false // Keep running as menu bar app even when all windows close
+    }
+
+    // MARK: - CloudKit silent push → CKSyncEngine fetch
+
+    /// CloudKit sends a silent push whenever the private zone (Copied)
+    /// has new changes. `NSApp.registerForRemoteNotifications()` above
+    /// asks the OS to deliver those pushes to this app; this delegate
+    /// method is where we forward them to CKSyncEngine so the engine
+    /// fetches the new records. Without this, pushes arrive at the OS
+    /// and never reach the engine — which is exactly why sync only
+    /// appeared to work when the user refocused a window (that path
+    /// fires `didBecomeActive` → `fetchChanges`).
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        syncProfileLogger.log("trigger remoteNotification")
+        Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.remoteNotification") }
+    }
+
+    /// APNs delivered a device token — log only. CKSyncEngine manages
+    /// its own CKDatabaseSubscription, so we don't forward this token;
+    /// presence just confirms push registration succeeded.
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NSLog("[CopiedMacApp] registered for remote notifications, token=\(deviceToken.count) bytes")
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NSLog("[CopiedMacApp] remote notification registration failed: \(error.localizedDescription)")
+    }
+
+    // MARK: - Hotkey → MenuBarExtra popover
+
+    /// Programmatically open / close the MenuBarExtra popover by
+    /// finding the underlying `NSStatusBarButton` in the app's
+    /// window list and calling `performClick(nil)`. This is the
+    /// only way to drive MenuBarExtra from a global hotkey —
+    /// SwiftUI does not expose a presentation binding for the
+    /// popover content. Walking `NSApp.windows` is stable across
+    /// macOS 14+ but uses a class-name match (`NSStatusBarWindow`)
+    /// to locate the status item's host window.
+    @MainActor
+    private func toggleMenuBarPopover() {
+        guard let button = findMenuBarExtraButton() else {
+            NSLog("[CopiedMacApp] hotkey: status bar button not found; popover will not toggle")
+            return
+        }
+        // Activate first so the popover gains key window status,
+        // matching the activation flush behavior the inbound sync
+        // path benefits from.
+        NSApp.activate(ignoringOtherApps: true)
+        button.performClick(nil)
+    }
+
+    @MainActor
+    private func findMenuBarExtraButton() -> NSStatusBarButton? {
+        for window in NSApp.windows {
+            let className = String(describing: type(of: window))
+            // MenuBarExtra hosts its status item inside a window whose
+            // class contains "StatusBar" (private). Filter to those
+            // before walking subviews to keep the search cheap.
+            guard className.contains("StatusBar") else { continue }
+            if let button = recursiveFindStatusBarButton(in: window.contentView) {
+                return button
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func recursiveFindStatusBarButton(in view: NSView?) -> NSStatusBarButton? {
+        guard let view else { return nil }
+        if let button = view as? NSStatusBarButton { return button }
+        for sub in view.subviews {
+            if let found = recursiveFindStatusBarButton(in: sub) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Menu bar right-click menu
+
+    @MainActor
+    private func showMenuBarRightClickMenu(from button: NSStatusBarButton) {
+        let menu = NSMenu()
+        let openMain = NSMenuItem(
+            title: "Open Main Window",
+            action: #selector(rightClickMenuOpenMainWindow),
+            keyEquivalent: ""
+        )
+        openMain.target = self
+        menu.addItem(openMain)
+
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(rightClickMenuOpenSettings),
+            keyEquivalent: ""
+        )
+        settings.target = self
+        menu.addItem(settings)
+
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(
+            title: "Quit Copied",
+            action: #selector(rightClickMenuQuit),
+            keyEquivalent: ""
+        )
+        quit.target = self
+        menu.addItem(quit)
+
+        // Pop up below the status bar button.
+        let location = NSPoint(x: 0, y: button.bounds.height + 4)
+        menu.popUp(positioning: nil, at: location, in: button)
+    }
+
+    @objc private func rightClickMenuOpenMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        // If the window already exists, just bring it forward.
+        for window in NSApp.windows where window.title == "Copied" {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        // Otherwise route through the existing copied:// URL handler
+        // — that scene's .onOpenURL calls openWindow(id: "main").
+        if let url = URL(string: "copied://") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func rightClickMenuOpenSettings() {
+        SettingsWindowController.shared.show()
+    }
+
+    @objc private func rightClickMenuQuit() {
+        NSApp.terminate(nil)
     }
 }
 
