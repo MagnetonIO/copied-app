@@ -1,0 +1,8 @@
+First iOS release of Copied.
+
+• Capture clippings from any app via Share Extension and Copied Clipper action
+• iCloud Sync — your clipboard history follows you to every iPhone, iPad, and Mac
+• Full-text search across text, rich text, and HTML
+• Smart code language detection (25+ languages)
+• Favorites, trash, and lists for organizing clippings
+• Companion to Copied for Mac

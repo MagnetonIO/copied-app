@@ -68,9 +68,9 @@ targets:
         LSUIElement: false
         LSApplicationCategoryType: public.app-category.utilities
         NSAppleScriptEnabled: true
-        CFBundleDisplayName: Copied App
-        CFBundleShortVersionString: "1.2.0"
-        CFBundleVersion: "9"
+        CFBundleDisplayName: Copied
+        CFBundleShortVersionString: "1.3.0"
+        CFBundleVersion: "10"
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: com.mlong.copied.url-scheme
@@ -83,8 +83,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.2.0"
-        CURRENT_PROJECT_VERSION: "9"
+        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: "10"
         # Compile flags:
         #   MAS_BUILD       — paywall UI + PurchaseManager symbol present
         #   MAS_STOREFRONT  — "Unlock" button talks to real StoreKit (App Store IAP).
@@ -197,8 +197,8 @@ targets:
         # variants. Override the base value locally per-target.
         CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Wire the host Assets.xcassets (generated 1024×1024 AppIcon — Xcode
         # synthesizes all iOS resolutions). Without this the home-screen and
@@ -273,8 +273,8 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedShareExtension/CopiedShareExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Dedicated AppIcon for the share row — without this iOS falls
         # back to a generic placeholder in the share sheet.
@@ -339,8 +339,8 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedClipperExtension/CopiedClipperExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT

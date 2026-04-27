@@ -1,0 +1,16 @@
+app_identifier "com.mlong.copied"
+team_id "7727LYTG96"
+
+platform "ios"
+
+# Skip build upload here — the Fastfile lanes handle that explicitly.
+skip_binary_upload true
+
+# Path layout deliver expects:
+#   fastlane/metadata-ios/<locale>/*.txt        — per-locale text fields
+#   fastlane/metadata-ios/review_information/*  — review contact/demo creds
+#   fastlane/metadata-ios/copyright.txt         — non-localized
+#   fastlane/screenshots-ios/<locale>/*.png     — screenshots (optional, not yet wired)
+
+metadata_path "./fastlane/metadata-ios"
+screenshots_path "./fastlane/screenshots-ios"

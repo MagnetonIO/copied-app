@@ -1,0 +1,18 @@
+Copied is a fast, iCloud-synced clipboard manager for iPhone, iPad, and Mac.
+
+Save anything you copy — text, links, images, code snippets — and have it instantly available on every device signed into your iCloud account. Capture from any app via the Share Extension or the one-tap Copied Clipper action, search your full history, pin favorites, and paste back with full fidelity.
+
+FEATURES
+• Share Extension — "Save to Copied" from any app
+• Action Extension — one-tap Copied Clipper for fast capture
+• Full-text search across text, rich text, and HTML
+• Smart content detection for links, code, images, and files
+• Code language detection (25+ languages)
+• Favorites and trash with time-based retention
+• iCloud Sync keeps your clipboard in sync across all your iPhones, iPads, and Macs
+• Lists for organizing clippings
+• Privacy-first: your data stays in your own iCloud account; never our servers
+
+Designed for writers, developers, and anyone who lives on the clipboard.
+
+Companion to Copied for Mac (sold separately on the Mac App Store).

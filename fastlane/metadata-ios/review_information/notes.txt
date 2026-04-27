@@ -1,0 +1,21 @@
+Copied is an iCloud-synced clipboard manager for iPhone and iPad. No sign-in required — sync uses the device's iCloud account automatically.
+
+QUICK START
+1. Launch the app — clipboard history (initially empty) shows on the main screen.
+2. From any other app, use the system Share Sheet → "Save to Copied" to add a clipping. Alternatively, use the Action Extension "Copied Clipper" from the share sheet for one-tap capture.
+3. Switch back to Copied — the new clipping appears at the top of the list.
+4. Tap any clipping to copy it back to the system pasteboard, ready to paste anywhere.
+
+iCloud SYNC
+The app uses CloudKit's private database (the user's own iCloud account, not our servers). To verify sync end-to-end, install Copied on a second device signed into the same Apple ID — clippings appear within a few seconds. Sync is included; no in-app purchase required for the iOS app.
+
+PRIVACY
+• All clipboard data stays in the user's iCloud private container; we have zero access.
+• No third-party analytics in the iOS app.
+• No accounts, no logins, no data collection.
+
+EXTENSIONS
+• Share Extension — bundle ID com.mlong.copied.ShareExtension. Adds "Save to Copied" to the system share sheet.
+• Action Extension — bundle ID com.mlong.copied.ClipperAction. Adds the "Copied Clipper" one-tap capture action.
+
+Support: support@getcopied.app
