@@ -718,7 +718,13 @@ platform :ios do
       </plist>
     PLIST
 
-    sh(%(cd '#{repo}' && xcodebuild -exportArchive \
+    # PATH override: macOS 15+ Sequoia + Homebrew rsync 3.4.1 = xcodebuild's
+    # IDEDistributionCreateIPAStep fails with "Copy failed" because the new
+    # rsync no longer accepts the legacy `-E` (--extended-attributes) flag
+    # xcodebuild passes. Forcing /usr/bin first uses Apple's bundled rsync,
+    # which still understands the legacy flag set. Without this, every iOS
+    # archive export silently produces no .ipa.
+    sh(%(cd '#{repo}' && PATH=/usr/bin:/bin:/usr/sbin:/sbin xcodebuild -exportArchive \
       -archivePath '#{archive_path}' \
       -exportPath build/ios \
       -exportOptionsPlist '#{export_plist}' \
@@ -748,6 +754,22 @@ platform :ios do
       skip_waiting_for_build_processing: true
     )
     UI.success("Uploaded to TestFlight. Check App Store Connect for processing status.")
+  end
+
+  desc "Open the App Store Connect 'New App' web UI for the iOS app — Apple does not permit app creation via API key, so this step is manual (one-time)."
+  lane :create_app do
+    UI.message("Apple's App Store Connect API does not allow CREATE on the 'apps' resource (verified Apr 2026 — only GET/UPDATE allowed).")
+    UI.message("Open https://appstoreconnect.apple.com/apps and click '+' → 'New App'. Use these values:")
+    UI.message("")
+    UI.message("  Platform:           iOS")
+    UI.message("  Name:               Copied")
+    UI.message("  Primary Language:   English (U.S.)")
+    UI.message("  Bundle ID:          com.mlong.copied  (XC com.mlong.copied)")
+    UI.message("  SKU:                copied-ios-001")
+    UI.message("  User Access:        Full Access (or as needed)")
+    UI.message("")
+    UI.message("After creating, re-run `bundle exec fastlane ios testflight` to upload the existing build/ios/Copied.ipa.")
+    sh("open https://appstoreconnect.apple.com/apps")
   end
 
   desc "Upload iOS App Store metadata only (no build, no submit). Reads fastlane/metadata-ios/."
