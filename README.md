@@ -61,3 +61,11 @@ Clipboard history syncs automatically across all your Macs via iCloud. Both devi
 ## License
 
 Proprietary — Magneton Labs, LLC
+
+## 💰 Bounty Contribution
+
+- **Task:** Manual ASC web items required before submitting Copied 1.3.0 for App Store revie
+- **Reward:** $5
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-28
+
