@@ -7,7 +7,7 @@ import Security
 /// rest of the app reads — Keychain is the source of truth; UserDefaults is
 /// a mirror maintained by this store.
 public enum LicenseStore {
-    private static let service = "com.mlong.copied.license"
+    private static let service = "com.magneton.copied.license"
     private static let account = "icloud-sync"
     private static let purchasedFlagKey = "iCloudSyncPurchased"
 

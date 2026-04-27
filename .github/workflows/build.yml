@@ -68,7 +68,7 @@ jobs:
           PROFILE_PATH="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
           mkdir -p "$PROFILE_PATH"
           echo -n "$PROVISIONING_PROFILE" | base64 --decode \
-            -o "$PROFILE_PATH/copied-mac.provisionprofile"
+            -o "$PROFILE_PATH/copied.provisionprofile"
 
       - name: Build signed Release
         run: |

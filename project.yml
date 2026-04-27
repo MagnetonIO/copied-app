@@ -1,6 +1,6 @@
 name: Copied
 options:
-  bundleIdPrefix: com.mlong
+  bundleIdPrefix: com.magneton
   deploymentTarget:
     macOS: "15.0"
     iOS: "18.0"
@@ -70,21 +70,21 @@ targets:
         NSAppleScriptEnabled: true
         CFBundleDisplayName: Copied
         CFBundleShortVersionString: "1.3.0"
-        CFBundleVersion: "10"
+        CFBundleVersion: "1"
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
-          - CFBundleURLName: com.mlong.copied.url-scheme
+          - CFBundleURLName: com.magneton.copied.url-scheme
             CFBundleURLSchemes: [copied]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.mac
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied
         PRODUCT_NAME: Copied
         MACOSX_DEPLOYMENT_TARGET: "15.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.0"
-        CURRENT_PROJECT_VERSION: "10"
+        CURRENT_PROJECT_VERSION: "1"
         # Compile flags:
         #   MAS_BUILD       — paywall UI + PurchaseManager symbol present
         #   MAS_STOREFRONT  — "Unlock" button talks to real StoreKit (App Store IAP).
@@ -170,6 +170,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
@@ -189,7 +190,7 @@ targets:
           - fetch
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied
         PRODUCT_NAME: Copied
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         # iOS targets sign under the developer's personal iOS team, which
@@ -198,7 +199,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.0"
-        CURRENT_PROJECT_VERSION: "10"
+        CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Wire the host Assets.xcassets (generated 1024×1024 AppIcon — Xcode
         # synthesizes all iOS resolutions). Without this the home-screen and
@@ -230,7 +231,7 @@ targets:
         # store the host app reads. Group id matches the Mac prefix so a
         # future cross-platform extension can share the same keyspace.
         com.apple.security.application-groups:
-          - group.com.mlong.copied
+          - group.com.magneton.copied
     scheme:
       # Same StoreKit config as CopiedMac so Simulator can simulate the IAP
       # without requiring the App Store Connect product to exist.
@@ -268,13 +269,13 @@ targets:
               NSExtensionActivationSupportsImageWithMaxCount: 5
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.ShareExtension
         PRODUCT_NAME: CopiedShareExtension
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedShareExtension/CopiedShareExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.0"
-        CURRENT_PROJECT_VERSION: "10"
+        CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Dedicated AppIcon for the share row — without this iOS falls
         # back to a generic placeholder in the share sheet.
@@ -287,7 +288,7 @@ targets:
       path: CopiedShareExtension/CopiedShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.mlong.copied
+          - group.com.magneton.copied
 
   # ──────────────────────────────────────────
   # iOS Clipper Action Extension — "Copied Clipper"
@@ -334,13 +335,13 @@ targets:
             NSExtensionPointVersion: "1.0"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.ClipperAction
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.ClipperAction
         PRODUCT_NAME: CopiedClipperExtension
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedClipperExtension/CopiedClipperExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.0"
-        CURRENT_PROJECT_VERSION: "10"
+        CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
@@ -351,7 +352,7 @@ targets:
       path: CopiedClipperExtension/CopiedClipperExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.mlong.copied
+          - group.com.magneton.copied
 
   # ──────────────────────────────────────────
   # Tests
@@ -367,7 +368,7 @@ targets:
       - target: CopiedMac
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mlong.copied.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.tests
         GENERATE_INFOPLIST_FILE: true
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Copied.app/Contents/MacOS/Copied"
         BUNDLE_LOADER: "$(TEST_HOST)"

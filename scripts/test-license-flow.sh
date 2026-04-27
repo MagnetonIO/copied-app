@@ -46,7 +46,7 @@ stop_procs() {
 
 if [ "$cmd" = "stop" ]; then
   stop_procs
-  defaults delete com.mlong.copied.mac CopiedStripeLocalOverride 2>/dev/null || true
+  defaults delete com.magneton.copied CopiedStripeLocalOverride 2>/dev/null || true
   echo "Cleared CopiedStripeLocalOverride default."
   exit 0
 fi
@@ -161,7 +161,7 @@ fi
 
 # ── point DEBUG app at localhost ────────────────────────────────────────
 
-defaults write com.mlong.copied.mac CopiedStripeLocalOverride "http://localhost:3000/buy?app=mac"
+defaults write com.magneton.copied CopiedStripeLocalOverride "http://localhost:3000/buy?app=mac"
 
 cat <<EOF
 

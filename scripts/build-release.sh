@@ -6,11 +6,11 @@ cd "$(dirname "$0")/.."
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" CopiedMac/Info.plist 2>/dev/null || echo "1.0")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" CopiedMac/Info.plist 2>/dev/null || echo "1")
 TEAM_ID="7727LYTG96"
-IDENTIFIER="com.mlong.copied.mac"
-# Developer ID profile that actually matches com.mlong.copied.mac + iCloud
-# container. Required because CloudKit entitlements force a provisioning
-# profile even for Developer ID signing.
-PROVISIONING_PROFILE_SPECIFIER="Copied Mac DevID"
+IDENTIFIER="com.magneton.copied"
+# Developer ID profile that matches com.magneton.copied + iCloud container.
+# Required because CloudKit entitlements force a provisioning profile even
+# for Developer ID signing.
+PROVISIONING_PROFILE_SPECIFIER="Copied DevID"
 
 echo "========================================"
 echo "  Building Copied v${VERSION} (${BUILD})"

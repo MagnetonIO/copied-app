@@ -6,7 +6,7 @@ PROJECT_DIR="$(pwd)"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" CopiedMac/Info.plist 2>/dev/null || echo "1.0")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" CopiedMac/Info.plist 2>/dev/null || echo "1")
-IDENTIFIER="com.mlong.copied.mac"
+IDENTIFIER="com.magneton.copied"
 
 echo "Building Copied v${VERSION} (${BUILD})..."
 mkdir -p build

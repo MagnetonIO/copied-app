@@ -367,7 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `isInserted` binding) observes — toggles popover visibility.
         GlobalHotkeyManager.shared.register {
             NotificationCenter.default.post(
-                name: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+                name: Notification.Name("com.magneton.copied.toggleMenuBarPopover"),
                 object: nil
             )
         }
@@ -379,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // performClick on it — that drives the same code path as a
         // real user click on the menu bar icon.
         hotkeyToggleObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+            forName: Notification.Name("com.magneton.copied.toggleMenuBarPopover"),
             object: nil,
             queue: .main
         ) { _ in

@@ -17,7 +17,7 @@
 #   ./scripts/ios-device.sh id                   # echo first connected UDID
 #   ./scripts/ios-device.sh build                # xcodebuild, signed, DDI-compatible
 #   ./scripts/ios-device.sh install              # install built .app on device
-#   ./scripts/ios-device.sh launch               # launch com.mlong.copied
+#   ./scripts/ios-device.sh launch               # launch com.magneton.copied
 #   ./scripts/ios-device.sh run                  # build + install + launch
 #   ./scripts/ios-device.sh logs                 # tail device log for Copied
 #   ./scripts/ios-device.sh uninstall            # remove app from device
@@ -27,7 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="com.mlong.copied"
+BUNDLE_ID="com.magneton.copied"
 SCHEME="CopiedIOS"
 CONFIG="Debug"
 DERIVED="build/ios-device"

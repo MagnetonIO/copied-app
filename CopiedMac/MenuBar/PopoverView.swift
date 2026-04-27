@@ -1079,7 +1079,7 @@ struct PopoverView: View {
     /// still associated with it.
     private func dismissPopover() {
         NotificationCenter.default.post(
-            name: Notification.Name("com.mlong.copied.toggleMenuBarPopover"),
+            name: Notification.Name("com.magneton.copied.toggleMenuBarPopover"),
             object: nil
         )
     }

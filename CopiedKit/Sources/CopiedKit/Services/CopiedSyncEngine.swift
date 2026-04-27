@@ -118,7 +118,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     private var persisted: Persisted
     private let stateFileURL: URL
-    private let stateQueue = DispatchQueue(label: "com.mlong.copied.syncengine.state")
+    private let stateQueue = DispatchQueue(label: "com.magneton.copied.syncengine.state")
 
     // MARK: - Init
 

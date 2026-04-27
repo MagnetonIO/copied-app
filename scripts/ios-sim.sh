@@ -9,17 +9,17 @@
 # Usage:
 #   ./scripts/ios-sim.sh boot           # boot COPIED_SIM_NAME (iPhone 17 Pro)
 #   ./scripts/ios-sim.sh install        # install build/ios-sim/Copied.app on booted sim
-#   ./scripts/ios-sim.sh launch         # launch com.mlong.copied on booted sim
+#   ./scripts/ios-sim.sh launch         # launch com.magneton.copied on booted sim
 #   ./scripts/ios-sim.sh run            # boot + install + launch in one shot
 #   ./scripts/ios-sim.sh shot PATH      # screenshot booted sim to PATH (default build/ios-sim/shot.png)
 #   ./scripts/ios-sim.sh pbcopy "TEXT"  # push TEXT onto the simulator clipboard
 #   ./scripts/ios-sim.sh reset          # shutdown + erase booted sim
-#   ./scripts/ios-sim.sh uninstall      # remove com.mlong.copied from booted sim
+#   ./scripts/ios-sim.sh uninstall      # remove com.magneton.copied from booted sim
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="com.mlong.copied"
+BUNDLE_ID="com.magneton.copied"
 APP_PATH="${COPIED_IOS_APP_PATH:-build/ios-sim/Copied.app}"
 SIM_NAME="${COPIED_SIM_NAME:-iPhone 17 Pro}"
 

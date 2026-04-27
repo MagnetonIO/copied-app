@@ -151,7 +151,7 @@ final class ClipperActionViewController: SLComposeServiceViewController {
         } catch {
             NSLog("CopiedClipperExtension: failed to enqueue: \(error)")
             let wrapped = NSError(
-                domain: "com.mlong.copied.ClipperAction",
+                domain: "com.magneton.copied.ClipperAction",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Couldn't save to Copied. Please try again."]
             )

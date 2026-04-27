@@ -15,7 +15,7 @@ PRIVACY
 • No accounts, no logins, no data collection.
 
 EXTENSIONS
-• Share Extension — bundle ID com.mlong.copied.ShareExtension. Adds "Save to Copied" to the system share sheet.
-• Action Extension — bundle ID com.mlong.copied.ClipperAction. Adds the "Copied Clipper" one-tap capture action.
+• Share Extension — bundle ID com.magneton.copied.ShareExtension. Adds "Save to Copied" to the system share sheet.
+• Action Extension — bundle ID com.magneton.copied.ClipperAction. Adds the "Copied Clipper" one-tap capture action.
 
 Support: support@getcopied.app

@@ -149,7 +149,7 @@ final class ShareViewController: SLComposeServiceViewController {
         } catch {
             NSLog("CopiedShareExtension: failed to enqueue: \(error)")
             let wrapped = NSError(
-                domain: "com.mlong.copied.ShareExtension",
+                domain: "com.magneton.copied.ShareExtension",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Couldn't save to Copied. Please try again."]
             )

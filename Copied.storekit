@@ -8,12 +8,12 @@
       "internalID" : "CopiedICloudSync",
       "localizations" : [
         {
-          "description" : "Sync your clipboard history across all your Macs via iCloud. One-time purchase.",
+          "description" : "Sync your clipboard history across all your Macs and iOS devices via iCloud. One-time purchase.",
           "displayName" : "iCloud Sync",
           "locale" : "en_US"
         }
       ],
-      "productID" : "com.mlong.copied.icloud_sync",
+      "productID" : "com.magneton.copied.icloud_sync",
       "referenceName" : "iCloud Sync",
       "type" : "NonConsumable"
     }

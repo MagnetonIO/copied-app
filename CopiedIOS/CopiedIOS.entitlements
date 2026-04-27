@@ -14,7 +14,7 @@
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.mlong.copied</string>
+		<string>group.com.magneton.copied</string>
 	</array>
 </dict>
 </plist>

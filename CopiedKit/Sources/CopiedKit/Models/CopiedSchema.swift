@@ -7,9 +7,11 @@ public enum CopiedSchema {
     /// the brand-cased label. Must match an iCloud container identifier
     /// created in the Apple Developer portal and listed in every
     /// target's `com.apple.developer.icloud-container-identifiers`
-    /// entitlement. Prior identifier `iCloud.com.mlong.copied` is dead
-    /// — any data there is orphaned and can be deleted from the
-    /// portal or iOS Settings.
+    /// entitlement. The Mac app previously used the bundle prefix
+    /// `com.mlong.copied.mac`; that App Store record was deleted and the
+    /// codebase unified under `com.magneton.copied`. The iCloud container
+    /// identifier above never changed, so existing CloudKit data is
+    /// preserved across the rename.
     public static let containerIdentifier = "iCloud.com.magneton.Copied"
 
     public static let models: [any PersistentModel.Type] = [

@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-PREFS=~/Library/Containers/com.mlong.copied.mac/Data/Library/Preferences/com.mlong.copied.mac.plist
+PREFS=~/Library/Containers/com.magneton.copied/Data/Library/Preferences/com.magneton.copied.plist
 
 # Kill any running dev build so the relaunch picks up fresh plist state.
 pkill -9 -f "Copied \(Dev\).app/Contents/MacOS/Copied" 2>/dev/null || true

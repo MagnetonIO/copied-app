@@ -1,7 +1,7 @@
 import Foundation
 
 /// Inbox queue shared between the host iOS app and the Share Extension via
-/// the `group.com.mlong.copied` App Group container.
+/// the `group.com.magneton.copied` App Group container.
 ///
 /// We deliberately do **not** share the SwiftData store directly: the main
 /// store is backed by CloudKit (NSPersistentCloudKitContainer), which expects
@@ -10,7 +10,7 @@ import Foundation
 /// inbox directory, and the host drains the inbox into its SwiftData store
 /// on `ScenePhase.active`.
 public enum SharedStore {
-    public static let appGroupIdentifier = "group.com.mlong.copied"
+    public static let appGroupIdentifier = "group.com.magneton.copied"
 
     /// One pending capture from an extension. Shape is intentionally loose —
     /// text / url / imageData / title are all optional, matching the

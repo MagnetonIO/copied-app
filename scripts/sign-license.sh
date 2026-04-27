@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 email="${1:-test@example.com}"
 device_limit="${2:-3}"
-product="copied-mac-icloud"
+product="copied-icloud"
 purchased_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 priv=".keys/license/signing.pem"
 

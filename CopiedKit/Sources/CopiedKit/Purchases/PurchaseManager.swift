@@ -13,7 +13,7 @@ public final class PurchaseManager {
     public static let shared = PurchaseManager()
 
     /// Keep in sync with the product record in App Store Connect and Copied.storekit.
-    nonisolated public static let iCloudSyncProductID = "com.mlong.copied.icloud_sync"
+    nonisolated public static let iCloudSyncProductID = "com.magneton.copied.icloud_sync"
 
     /// UserDefaults cache so `SharedData.container` can make a sync-or-not decision
     /// synchronously at app launch without awaiting StoreKit. Verified async on launch
