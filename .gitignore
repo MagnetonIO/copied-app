@@ -4,7 +4,7 @@ build/
 DerivedData/
 *.xcarchive
 images/
-
+docs/
 # Xcode
 xcuserdata/
 *.xcscmblueprint
