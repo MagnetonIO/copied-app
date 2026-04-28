@@ -232,7 +232,7 @@ public final class ClipboardService {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { break }
-                await self?.poll()
+                await MainActor.run { self?.poll() }
             }
         }
         #elseif canImport(UIKit)
@@ -426,7 +426,7 @@ public final class ClipboardService {
         let captureImages = self.captureImages
         let captureRichText = self.captureRichText
         Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Self.processCapture(
+            let result = await Self.processCapture(
                 input,
                 captureImages: captureImages,
                 captureRichText: captureRichText
@@ -500,7 +500,7 @@ public final class ClipboardService {
     // MARK: - Phase C (main): build Clipping + dedup + insert.
 
     @MainActor
-    private func finalizeCapture(input: CaptureInput, result: CaptureResult) {
+    private func finalizeCapture(input: CaptureInput, result: CaptureResult) async {
         guard let modelContext else { return }
 
         let clipping = Clipping()
@@ -579,7 +579,7 @@ public final class ClipboardService {
         _ input: CaptureInput,
         captureImages: Bool,
         captureRichText: Bool
-    ) -> CaptureResult {
+    ) async -> CaptureResult {
         var result = CaptureResult()
 
         // Image data from pasteboard blobs first, then file URL disk read.
@@ -631,7 +631,7 @@ public final class ClipboardService {
             guard Clipping.videoExtensions.contains(url.pathExtension.lowercased()) else { continue }
             result.sourceURL = url.absoluteString
             result.videoTitle = url.lastPathComponent
-            if !result.hasImage, let thumb = generateVideoThumbnail(from: url) {
+            if !result.hasImage, let thumb = await Self.generateVideoThumbnail(from: url) {
                 result.imageData = thumb.data
                 result.imageFormat = "png"
                 result.imageWidth = thumb.width
@@ -690,10 +690,12 @@ public final class ClipboardService {
 
     /// Grabs a frame from a video file and returns PNG-encoded bytes plus
     /// pixel dimensions. Returns nil if the asset has no video track or frame
-    /// extraction fails (unreadable file, format not supported, etc.). Runs
-    /// synchronously on the capture thread — at the 512 px cap the decode is
+    /// extraction fails (unreadable file, format not supported, etc.). Uses
+    /// the modern async `AVAssetImageGenerator.image(at:)` API (iOS 16 /
+    /// macOS 13+); the legacy `copyCGImage(at:actualTime:)` was deprecated
+    /// in iOS 18 / macOS 15. Async, but at the 512 px cap the decode is
     /// fast enough (tens of ms) not to affect polling responsiveness.
-    nonisolated private static func generateVideoThumbnail(from url: URL) -> (data: Data, width: Double, height: Double)? {
+    nonisolated private static func generateVideoThumbnail(from url: URL) async -> (data: Data, width: Double, height: Double)? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -701,16 +703,17 @@ public final class ClipboardService {
         generator.maximumSize = CGSize(width: 512, height: 512)
         let time = CMTime(seconds: 1.0, preferredTimescale: 600)
 
-        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else {
-            // Fall back to time zero — some clips are <1s long
-            generator.requestedTimeToleranceBefore = .positiveInfinity
-            generator.requestedTimeToleranceAfter = .positiveInfinity
-            guard let retryCGImage = try? generator.copyCGImage(at: .zero, actualTime: nil) else {
-                return nil
-            }
-            return encodePNG(retryCGImage)
+        if let result = try? await generator.image(at: time) {
+            return encodePNG(result.image)
         }
-        return encodePNG(cgImage)
+
+        // Fall back to time zero — some clips are <1s long
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+        guard let retry = try? await generator.image(at: .zero) else {
+            return nil
+        }
+        return encodePNG(retry.image)
     }
 
     nonisolated private static func encodePNG(_ cgImage: CGImage) -> (data: Data, width: Double, height: Double)? {
