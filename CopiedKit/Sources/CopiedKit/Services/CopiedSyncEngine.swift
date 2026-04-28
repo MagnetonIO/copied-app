@@ -451,11 +451,74 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 await drainRemainingZoneChanges(source: source)
             }
         } catch {
+            // Server-side reset (CloudKit Dashboard "Reset Production
+            // Environment", zone delete, or token aging) makes our local
+            // change token invalid. CKError reports this as:
+            //   .changeTokenExpired      (21) — "client knowledge differs from server knowledge"
+            //   .zoneNotFound            (26) — zone got deleted server-side
+            //   .userDeletedZone         (28) — user purged via iOS Settings
+            // For all three, recovery is the same: clear local token, refetch
+            // from scratch (token: nil = full zone replay). One retry only —
+            // if it still fails, log + give up so we don't loop forever.
+            if shouldResetTokenForError(error) {
+                Self.profileLogger.notice(
+                    "manualPull token invalid (server reset) — clearing local token + retrying full pull source=\(source, privacy: .public)"
+                )
+                clearManualPullToken()
+                do {
+                    let result = try await fetchZoneChanges(token: nil)
+                    await applyManualPullChanges(
+                        modifications: result.modifications,
+                        deletions: result.deletions,
+                        source: "\(source).afterReset"
+                    )
+                    if let newToken = result.newToken {
+                        encodeManualPullToken(newToken)
+                    }
+                    Self.profileLogger.log(
+                        "manualPull recovered source=\(source, privacy: .public) modifications=\(result.modifications.count) deletions=\(result.deletions.count)"
+                    )
+                    if result.moreComing {
+                        await drainRemainingZoneChanges(source: "\(source).afterReset")
+                    }
+                    return
+                } catch {
+                    Self.profileLogger.error(
+                        "manualPull retry-after-reset failed source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+
             NSLog("[CopiedSyncEngine] manualPull source=\(source) failed: \(error.localizedDescription)")
             Self.profileLogger.error(
                 "manualPull failed source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
         }
+    }
+
+    /// Returns true if the CloudKit error indicates the server's view of
+    /// the zone diverged from our locally-persisted change token —
+    /// recoverable by clearing the token and re-fetching the whole zone.
+    private func shouldResetTokenForError(_ error: Error) -> Bool {
+        let codes: Set<Int> = [
+            CKError.changeTokenExpired.rawValue,    // 21
+            CKError.zoneNotFound.rawValue,          // 26
+            CKError.userDeletedZone.rawValue        // 28
+        ]
+        if let ck = error as? CKError, codes.contains(ck.code.rawValue) {
+            return true
+        }
+        // CKErrorPartialFailure wraps per-zone errors in a dict; check those too
+        if let ck = error as? CKError,
+           ck.code == .partialFailure,
+           let perZone = ck.partialErrorsByItemID as? [CKRecordZone.ID: Error] {
+            return perZone.values.contains { sub in
+                if let cksub = sub as? CKError { return codes.contains(cksub.code.rawValue) }
+                return false
+            }
+        }
+        // Fallback: inspect the localized description for the canonical phrase
+        return error.localizedDescription.contains("client knowledge differs from server knowledge")
     }
 
     private func drainRemainingZoneChanges(source: String) async {
@@ -658,6 +721,16 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         ) else { return }
         stateQueue.sync {
             persisted.manualPullZoneToken = data
+        }
+        persist()
+    }
+
+    /// Wipe the locally-persisted change token. Used after the server reset
+    /// the zone (CKErrorChangeTokenExpired etc.); the next fetch passes nil
+    /// and replays the entire zone from scratch.
+    private func clearManualPullToken() {
+        stateQueue.sync {
+            persisted.manualPullZoneToken = nil
         }
         persist()
     }
