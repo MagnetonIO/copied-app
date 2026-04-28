@@ -153,7 +153,7 @@ platform :mac do
       variant_name: "paid-license",
       output_subdir: "build/license",
       active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE",
-      pkg_basename: "Copied-License",
+      pkg_basename: "Copied",
       auto_open: options[:open].to_s == "true"
     )
   end
