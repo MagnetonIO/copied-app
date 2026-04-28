@@ -166,7 +166,7 @@ final class GlobalHotkeyManager: NSObject {
         if modifierMask.contains(.maskCommand) { carbonMods |= UInt32(cmdKey) }
         if modifierMask.contains(.maskAlternate) { carbonMods |= UInt32(optionKey) }
 
-        var hotkeyID = EventHotKeyID(signature: 0x434F5059, id: 1)
+        let hotkeyID = EventHotKeyID(signature: 0x434F5059, id: 1)
         RegisterEventHotKey(
             UInt32(keyCode),
             carbonMods,

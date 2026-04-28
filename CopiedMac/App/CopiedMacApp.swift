@@ -383,7 +383,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { _ in
-            self.toggleMenuBarPopover()
+            // Notification observer closure is Sendable, but toggleMenuBarPopover()
+            // is @MainActor. Hop explicitly to silence Swift 6 strict-concurrency
+            // warning (queue: .main already guarantees main thread, but the type
+            // checker doesn't know that).
+            Task { @MainActor in self.toggleMenuBarPopover() }
         }
 
         // Right-click on the menu bar icon → context menu.
