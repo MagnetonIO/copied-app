@@ -110,6 +110,20 @@ struct CopiedIOSApp: App {
         _ = PurchaseManager.shared
         #endif
 
+        // Pre-warm CopiedSyncEngine.shared OFF the SwiftUI render path.
+        // Without this, the first SwiftUI body that touches .shared (in our
+        // case a ScenePhase.active onChange that calls
+        // ClipboardService.checkForPasteboardChanges → insertOrMerge → .shared)
+        // triggers dispatch_once → CKContainer.init → CKOncePerBoot, which
+        // synchronously posts an NSNotification → SwiftUI's UserDefaultObserver
+        // tries to grab the SwiftUI MovableLock that the main thread is
+        // already holding mid-render → 8s deadlock → FrontBoard SIGKILL.
+        // Touching .shared here, before App.body ever runs, makes
+        // dispatch_once complete on a background dispatcher safely.
+        Task.detached(priority: .userInitiated) {
+            _ = CopiedSyncEngine.shared
+        }
+
         // One-shot v1.3.0 cleanup runs in `body`'s `.task` below — Swift
         // structs can't capture `self` into escaping closures from `init`.
 
