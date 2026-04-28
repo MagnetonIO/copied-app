@@ -164,11 +164,21 @@ struct CopiedIOSApp: App {
                 // Forcing a process-pending-changes on foreground catches any
                 // CloudKit imports that arrived while backgrounded.
                 SharedIOSData.container.mainContext.processPendingChanges()
-                // Also kick CKSyncEngine — silent-push delivery is not
-                // guaranteed, so a foreground-time fetch ensures the
-                // iPhone catches up on anything the Mac wrote while we
-                // were backgrounded.
-                Task.detached { await CopiedSyncEngine.shared.syncNow() }
+                // Two-pronged fetch:
+                //   1. syncNow() drives CKSyncEngine through its normal path
+                //      (incremental token, observed records).
+                //   2. manualInboundFetch() bypasses CKSyncEngine and uses
+                //      CKFetchRecordZoneChangesOperation directly with our
+                //      own change token — same pattern as the Mac side. This
+                //      catches changes that CKSyncEngine misses when its
+                //      subscription state is stale (notably right after a
+                //      bundle ID change, app reinstall, or CloudKit
+                //      Production wipe — none of which CKSyncEngine resyncs
+                //      on its own without a silent push).
+                Task.detached {
+                    await CopiedSyncEngine.shared.syncNow()
+                    await CopiedSyncEngine.shared.manualInboundFetch(source: "ios.scenePhase.active")
+                }
             }
         }
     }
