@@ -103,6 +103,7 @@ struct PopoverClippingCard: View {
         case .video: "play.rectangle.fill"
         case .link: "link"
         case .code: "chevron.left.forwardslash.chevron.right"
+        case .markdown: "text.alignleft"
         case .html: "globe"
         case .file: "doc"
         case .unknown: "questionmark.square"
@@ -116,6 +117,7 @@ struct PopoverClippingCard: View {
         case .image: .purple
         case .video: .pink
         case .richText: .orange
+        case .markdown: .indigo
         case .html: .cyan
         default: .secondary
         }
@@ -148,7 +150,7 @@ struct PopoverClippingCard: View {
             videoPreview
         case .link:
             linkPreview
-        case .code:
+        case .code, .markdown, .html:
             codePreview
         default:
             textPreview

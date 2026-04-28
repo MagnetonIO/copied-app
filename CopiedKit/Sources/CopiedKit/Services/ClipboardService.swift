@@ -361,6 +361,15 @@ public final class ClipboardService {
             || (clipping.extractedText?.isEmpty == false)
         guard didCapture else { return .rejected }
 
+        // Last line of defense for `deviceName` attribution. Insert
+        // paths that bypass this fill (Siri intent, Save sheet, share
+        // extension drain) all flow through `insertOrMerge`, so an empty
+        // `deviceName` here means the caller didn't set it — pick the
+        // local platform default.
+        if clipping.deviceName.isEmpty {
+            clipping.deviceName = currentDeviceName
+        }
+
         // SHA-256 fingerprint — same content → same hash on every
         // device, serving both capture-time dedup and cross-device
         // dedup in `CopiedSyncEngine.upsertClipping`.
@@ -382,6 +391,11 @@ public final class ClipboardService {
                 existing.copiedDate = now
                 existing.addDate = now
                 existing.modifiedDate = now
+                // Latest copier wins — re-copying on a different device
+                // updates the attribution so users see "the device that
+                // most recently copied this", not "the device that
+                // happened to copy it first weeks ago".
+                existing.deviceName = clipping.deviceName
                 try? context.save()
                 CopiedSyncEngine.shared.enqueueChange(
                     recordID: CopiedSyncEngine.clippingRecordID(existing.clippingID)
@@ -547,11 +561,7 @@ public final class ClipboardService {
             clipping.title = videoTitle
         }
 
-        if let text = clipping.text {
-            let detection = CodeDetector.detect(in: text)
-            clipping.isCode = detection.isCode
-            clipping.detectedLanguage = detection.language
-        }
+        Self.applyCategorization(to: clipping)
 
         clipping.appName = input.appName
         clipping.appBundleID = input.appBundleID
@@ -831,6 +841,37 @@ public final class ClipboardService {
             didCapture = true
         }
 
+        // Mirror Mac's HTML / RTF capture so HTML clippings (and the
+        // markdown-formatted plain text that ChatGPT/Notion/Bear paste
+        // alongside) sync iOS → Mac the same way they already sync
+        // Mac → iOS.
+        if let htmlData = pasteboard.data(forPasteboardType: "public.html") {
+            clipping.htmlData = htmlData
+            clipping.hasHTML = true
+            didCapture = true
+            if clipping.extractedText == nil,
+               let extracted = Self.plainTextFromHTMLPublic(htmlData) {
+                clipping.extractedText = extracted
+            }
+        }
+        if let rtfData = pasteboard.data(forPasteboardType: "public.rtf")
+            ?? pasteboard.data(forPasteboardType: "com.apple.flat-rtfd")
+            ?? pasteboard.data(forPasteboardType: "public.rtfd") {
+            clipping.richTextData = rtfData
+            clipping.hasRichText = true
+            didCapture = true
+            if clipping.extractedText == nil,
+               let extracted = Self.plainTextFromRTFPublic(rtfData) {
+                clipping.extractedText = extracted
+            }
+        }
+
+        // Surface the full UTI list so the detail panel "UTI Types"
+        // row works for iOS-origin clippings (was always empty before).
+        if let firstItem = pasteboard.items.first {
+            clipping.types = Array(firstItem.keys)
+        }
+
         clipping.deviceName = UIDevice.current.name
 
         guard didCapture else { return }
@@ -856,6 +897,10 @@ public final class ClipboardService {
             }
         }
 
+        // Categorize using the same priority chain as the Mac path: UTI
+        // source-code → markdown → rich HTML → plain-text heuristic.
+        Self.applyCategorization(to: clipping)
+
         switch Self.insertOrMerge(clipping, in: modelContext) {
         case .rejected:
             return
@@ -870,10 +915,13 @@ public final class ClipboardService {
 
     // MARK: - Reclassify Existing Clippings
 
-    private static let reclassifyKey = "didReclassifyClippingsV2"
+    private static let reclassifyKey = "didReclassifyClippingsV5"
 
-    /// One-time migration: re-runs URL and code detection on existing clippings
-    /// that were captured before detection logic was added.
+    /// One-time migration: re-runs URL and categorization on existing
+    /// clippings. V3 introduces UTI-based source-code detection, markdown
+    /// detection, and HTML triviality demotion — so old `.html` rows
+    /// whose body is actually markdown re-tag as `.markdown`, source
+    /// code that escaped heuristic detection picks up its language.
     private func reclassifyIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: Self.reclassifyKey) else { return }
         guard let modelContext else { return }
@@ -901,14 +949,13 @@ public final class ClipboardService {
                 }
             }
 
-            // Code detection on text (re-run on all items — detector may have improved)
-            if let text = clipping.text {
-                let detection = CodeDetector.detect(in: text)
-                if detection.isCode != clipping.isCode || detection.language != clipping.detectedLanguage {
-                    clipping.isCode = detection.isCode
-                    clipping.detectedLanguage = detection.language
-                    changed = true
-                }
+            // Re-run the new categorization chain. Captures markdown,
+            // UTI source-code, and downgrades trivial HTML wrappers.
+            let beforeIsCode = clipping.isCode
+            let beforeLang = clipping.detectedLanguage
+            Self.applyCategorization(to: clipping)
+            if beforeIsCode != clipping.isCode || beforeLang != clipping.detectedLanguage {
+                changed = true
             }
         }
 
@@ -916,6 +963,119 @@ public final class ClipboardService {
             try? modelContext.save()
         }
         UserDefaults.standard.set(true, forKey: Self.reclassifyKey)
+    }
+
+    // MARK: - Cross-platform helpers
+
+    /// Best-effort name of the device that's currently running the app —
+    /// stored on every locally-captured `Clipping` so other devices know
+    /// where the content originated. iOS returns the user-set device name
+    /// (e.g. "Matthew's iPhone") only if the app holds the
+    /// `com.apple.developer.device-information.user-assigned-device-name`
+    /// entitlement; otherwise it returns the model class ("iPhone").
+    public static var currentDeviceName: String {
+        #if canImport(AppKit)
+        return Host.current().localizedName ?? "Mac"
+        #elseif canImport(UIKit)
+        return UIDevice.current.name
+        #else
+        return "Unknown"
+        #endif
+    }
+
+    /// Cross-platform plain-text extraction from `text/html` data.
+    /// Mirrors the Mac-only `plainTextFromHTML` helper used in Phase B
+    /// so the iOS pasteboard path can populate `extractedText` for
+    /// search indexing.
+    nonisolated static func plainTextFromHTMLPublic(_ data: Data) -> String? {
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue
+        ]
+        guard let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else {
+            return nil
+        }
+        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
+    }
+
+    /// Cross-platform plain-text extraction from RTF/RTFD data.
+    nonisolated static func plainTextFromRTFPublic(_ data: Data) -> String? {
+        guard let attributed = try? NSAttributedString(data: data, documentAttributes: nil) else {
+            return nil
+        }
+        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
+    }
+
+    /// Single source of truth for code/markdown/html categorization.
+    /// Priority order: pasteboard UTI source-code → strong anchor patterns
+    /// → markdown text → rich HTML → IDE source hint → plain-text
+    /// heuristic. Setting `isCode` + `detectedLanguage` drives
+    /// `Clipping.contentKind` (`Models/Clipping.swift`), which picks the
+    /// badge ("Code"/"Markdown"/"Html") and the detail-panel renderer.
+    @MainActor
+    static func applyCategorization(to clipping: Clipping) {
+        // 1. Pasteboard UTI says it's source code — strongest signal.
+        if let lang = CodeDetector.languageFromUTIs(clipping.types) {
+            clipping.isCode = true
+            clipping.detectedLanguage = lang
+            return
+        }
+        // 2. High-confidence regex anchors (e.g. `import java.`,
+        //    `^def \w+\(:`, `<!DOCTYPE html>`). Catches single-function
+        //    snippets that the keyword heuristic misses for being short.
+        if let text = clipping.text, let lang = CodeDetector.anchorLanguage(in: text) {
+            clipping.isCode = true
+            clipping.detectedLanguage = lang
+            return
+        }
+        // 2.5 Structured config formats (YAML / JSON / TOML / Dockerfile /
+        //    Makefile). Must run BEFORE markdown — YAML's `- item` lists
+        //    and `---` separators were tipping the markdown heuristic
+        //    over its threshold.
+        if let text = clipping.text, let lang = CodeDetector.configLanguage(in: text) {
+            clipping.isCode = true
+            clipping.detectedLanguage = lang
+            return
+        }
+        // 3. Markdown markers in the plain text body. Beats HTML wrappers
+        //    that ChatGPT/Notion/Bear/Obsidian put around markdown source.
+        if let text = clipping.text, CodeDetector.looksLikeMarkdown(text) {
+            clipping.isCode = true
+            clipping.detectedLanguage = "markdown"
+            return
+        }
+        // 4. Real, structurally-rich HTML (tables, lists, links, scripts).
+        //    Trivial HTML wrappers fall through to step 5.
+        if clipping.hasHTML,
+           let data = clipping.htmlData,
+           let html = String(data: data, encoding: .utf8),
+           !CodeDetector.htmlIsTrivialWrapper(html) {
+            clipping.isCode = true
+            clipping.detectedLanguage = "html"
+            return
+        }
+        // 5. Source app is a known code editor → assume code even if
+        //    the snippet is too short / boilerplate-light to anchor.
+        //    Use the IDE's primary language as the default tag.
+        if let bundleID = clipping.appBundleID,
+           CodeDetector.codeEditorBundleIDs.contains(bundleID) {
+            clipping.isCode = true
+            clipping.detectedLanguage =
+                CodeDetector.defaultLanguageForIDE(bundleID)
+                ?? clipping.text.flatMap { CodeDetector.detect(in: $0).language }
+            return
+        }
+        // 6. Keyword-heuristic on plain text fallback (existing behavior).
+        if let text = clipping.text {
+            let detection = CodeDetector.detect(in: text)
+            clipping.isCode = detection.isCode
+            clipping.detectedLanguage = detection.language
+        } else {
+            clipping.isCode = false
+            clipping.detectedLanguage = nil
+        }
     }
 
     // MARK: - Dedup & Limits

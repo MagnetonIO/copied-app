@@ -87,6 +87,8 @@ public struct ClippingRow: View {
             fallbackIcon("doc.richtext")
         case .code:
             fallbackIcon("chevron.left.forwardslash.chevron.right")
+        case .markdown:
+            fallbackIcon("text.alignleft")
         case .html:
             fallbackIcon("globe")
         case .text:

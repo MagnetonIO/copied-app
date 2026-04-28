@@ -469,7 +469,7 @@ struct PopoverView: View {
                 }
             }
             Divider()
-            ForEach([ContentKind.text, .richText, .image, .video, .link, .code], id: \.self) { kind in
+            ForEach([ContentKind.text, .richText, .image, .video, .link, .code, .markdown, .html], id: \.self) { kind in
                 Button {
                     appState.filterKind = kind
                 } label: {
@@ -593,7 +593,7 @@ struct PopoverView: View {
                                             NSApp.keyWindow?.performClose(nil)
                                         }
                                     }
-                                    if clipping.contentKind == .code, let text = clipping.text {
+                                    if clipping.isCodeLike, let text = clipping.text {
                                         Button("Open in Editor") {
                                             openInEditor(text: text, language: clipping.detectedLanguage)
                                             NSApp.keyWindow?.performClose(nil)
@@ -757,7 +757,7 @@ struct PopoverView: View {
                             .foregroundStyle(.white.opacity(0.4))
                     }
                     .padding(20)
-                } else if clip.contentKind == .code, let text = clip.text {
+                } else if clip.isCodeLike, let text = clip.text {
                     // Code preview
                     VStack(spacing: 12) {
                         if let lang = clip.detectedLanguage {
@@ -1010,7 +1010,7 @@ struct PopoverView: View {
                 NSWorkspace.shared.open(url)
                 NSApp.keyWindow?.performClose(nil)
             }
-        case .code:
+        case .code, .markdown, .html:
             previewClipID = clipping.clippingID
         case .image:
             previewClipID = clipping.clippingID

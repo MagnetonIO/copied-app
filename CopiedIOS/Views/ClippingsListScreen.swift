@@ -614,7 +614,7 @@ private struct QueryList: View {
                         }
                     }
                     Divider()
-                    ForEach([ContentKind.text, .richText, .image, .video, .link, .code, .file, .html], id: \.self) { kind in
+                    ForEach([ContentKind.text, .richText, .image, .video, .link, .code, .markdown, .file, .html], id: \.self) { kind in
                         Button {
                             filterKind = kind
                         } label: {

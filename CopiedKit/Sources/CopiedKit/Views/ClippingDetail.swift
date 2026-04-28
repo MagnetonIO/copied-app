@@ -79,6 +79,7 @@ public struct ClippingDetail: View {
         case .link: "link"
         case .file: "doc"
         case .code: "chevron.left.forwardslash.chevron.right"
+        case .markdown: "text.alignleft"
         case .html: "globe"
         case .unknown: "questionmark.square"
         }
@@ -89,9 +90,11 @@ public struct ClippingDetail: View {
     @ViewBuilder
     private var content: some View {
         switch clipping.contentKind {
-        case .code:
+        case .code, .html:
             codeContent
-        case .text, .richText, .html:
+        case .markdown:
+            markdownContent
+        case .text, .richText:
             textContent
         case .image:
             imageContent
@@ -153,6 +156,37 @@ public struct ClippingDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
                 .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    @ViewBuilder
+    private var markdownContent: some View {
+        if let text = clipping.text {
+            // `inlineOnlyPreservingWhitespace` keeps line breaks intact
+            // and renders **bold** / *italic* / `code` / [text](url)
+            // natively. Block-level constructs (headings, lists, fenced
+            // code) come through as their source markers — good enough
+            // for a preview without pulling in a markdown-rendering dep.
+            let attributed = (try? AttributedString(
+                markdown: text,
+                options: AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                )
+            )) ?? AttributedString(text)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("markdown")
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.tint.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.tint)
+
+                Text(attributed)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 8))
+            }
         }
     }
 

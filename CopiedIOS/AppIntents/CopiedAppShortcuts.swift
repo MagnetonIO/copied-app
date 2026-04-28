@@ -108,6 +108,7 @@ struct SaveClipboardToCopiedIntent: AppIntent {
             clip.imageData = data
             clip.hasImage = true
             clip.imageByteCount = data.count
+            clip.imageFormat = "png"
         } else if let url = pb.url {
             clip.url = url.absoluteString
             clip.text = url.absoluteString
@@ -116,9 +117,15 @@ struct SaveClipboardToCopiedIntent: AppIntent {
         } else {
             return .result(dialog: "Your clipboard is empty.")
         }
-        context.insert(clip)
-        try context.save()
-        return .result(dialog: "Saved to Copied.")
+        // Route through the canonical insert pipeline so Siri-captured
+        // clippings get the same content-hash dedup, deviceName fill,
+        // and CKSyncEngine enqueue as the auto-capture path.
+        switch ClipboardService.insertOrMerge(clip, in: context) {
+        case .rejected:
+            return .result(dialog: "Your clipboard is empty.")
+        case .merged, .inserted:
+            return .result(dialog: "Saved to Copied.")
+        }
     }
 }
 

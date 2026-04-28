@@ -130,11 +130,32 @@ extension Clipping {
         return "(content missing)"
     }
 
+    /// True for any clipping that should be treated as structured /
+    /// editable source content — code, markdown, or rich HTML. Used by
+    /// the Mac "Open in Editor" affordances and the popover code-style
+    /// preview so HTML and Markdown clippings get the same edit/preview
+    /// behavior as plain Code clippings (their badges remain distinct).
+    public var isCodeLike: Bool {
+        switch contentKind {
+        case .code, .markdown, .html: return true
+        default: return false
+        }
+    }
+
     public var contentKind: ContentKind {
         if isVideoFile { return .video }
         if hasImage { return .image }
         if url != nil { return .link }
-        if isCode { return .code }
+        if isCode {
+            // Sub-classify so the badge tells the user what they're
+            // looking at: markdown / html / generic code. Markdown beats
+            // HTML when both fire because ChatGPT-style copies put an
+            // HTML wrapper around markdown text — the real content is
+            // the markdown.
+            if detectedLanguage == "markdown" { return .markdown }
+            if detectedLanguage == "html" { return .html }
+            return .code
+        }
         if hasHTML { return .html }
         if hasRichText { return .richText }
         if text != nil { return .text }
@@ -278,6 +299,7 @@ public enum ContentKind: String, Codable, Sendable {
     case link
     case file
     case code
+    case markdown
     case html
     case unknown
 }
