@@ -590,25 +590,21 @@ struct PopoverView: View {
                                         // otherwise dispatch arbitrary custom URL schemes.
                                         Button("Open Link") {
                                             NSWorkspace.shared.open(url)
-                                            NSApp.keyWindow?.performClose(nil)
                                         }
                                     }
                                     if clipping.isCodeLike, let text = clipping.text {
                                         Button("Open in Editor") {
                                             openInEditor(text: text, language: clipping.detectedLanguage)
-                                            NSApp.keyWindow?.performClose(nil)
                                         }
                                     }
                                     if clipping.contentKind == .image, clipping.hasImage {
                                         Button("Open in Default Viewer") {
                                             openImageInDefaultViewer(clipping)
-                                            NSApp.keyWindow?.performClose(nil)
                                         }
                                     }
                                     if let videoURL = videoFileURL(for: clipping) {
                                         Button("Open Video") {
                                             NSWorkspace.shared.open(videoURL)
-                                            NSApp.keyWindow?.performClose(nil)
                                         }
                                     }
                                     Divider()
@@ -750,6 +746,26 @@ struct PopoverView: View {
                             Text("\(Int(clip.imageWidth)) × \(Int(clip.imageHeight))")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.7))
+                        }
+
+                        HStack(spacing: 16) {
+                            Button("Copy") {
+                                if let imageData = clip.imageData {
+                                    let type: NSPasteboard.PasteboardType = clip.imageFormat == "png" ? .png : .tiff
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setData(imageData, forType: type)
+                                }
+                                previewClipID = nil
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+
+                            Button("Open in Default Viewer") {
+                                openImageInDefaultViewer(clip)
+                                previewClipID = nil
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
 
                         Text("Click or press Escape to dismiss")
