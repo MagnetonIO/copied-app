@@ -8,6 +8,12 @@ public struct CodeDetector: Sendable {
     }
 
     public static func detect(in text: String) -> Result {
+        // Cap to keep main-actor finalize predictable. Keyword/regex pass over
+        // a 100 KB log file is wasted work — return a neutral result.
+        guard text.count <= 64_000 else {
+            return Result(isCode: false, language: nil, confidence: 0)
+        }
+
         // Quick structural check for config/data formats (YAML, JSON, TOML, etc.)
         // These have distinct patterns that the general heuristics miss
         if let configLang = detectConfigFormat(text) {
@@ -244,6 +250,9 @@ public struct CodeDetector: Sendable {
     /// or one strong one (heading + bullets, fenced code, link)".
     public static func looksLikeMarkdown(_ text: String) -> Bool {
         guard text.count >= 30 else { return false }
+        // Don't burn regex/line-scan time on huge pasted dumps. Categorization
+        // for a 100 KB log file is meaningless anyway.
+        guard text.count <= 64_000 else { return false }
         let lines = text.components(separatedBy: .newlines)
         let nonEmpty = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -309,6 +318,27 @@ public struct CodeDetector: Sendable {
     /// before the keyword heuristic — anchors fire on short snippets
     /// (one function, one import) that the keyword heuristic misses.
     public static func anchorLanguage(in text: String) -> String? {
+        // Hard cap on text size — running ~80 regex matches over a 100 KB
+        // dump is a frame-budget killer with no useful payoff (huge pastes
+        // are almost never single-language code snippets).
+        guard text.count <= 64_000 else { return nil }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        for (lang, regex) in compiledAnchors {
+            if regex.firstMatch(in: text, options: [], range: range) != nil {
+                return lang
+            }
+        }
+        return nil
+    }
+
+    /// Compiled-once cache of the anchor patterns. Building NSRegularExpression
+    /// from a pattern string costs ~50-500 µs each — doing that for ~100
+    /// patterns on every clipboard capture (on `@MainActor`) accumulated to
+    /// 50-200 ms of main-thread stall right when the user reopened the
+    /// popover. Compiling once at class-init makes per-call cost a hash
+    /// lookup + regex match only.
+    private static let compiledAnchors: [(language: String, regex: NSRegularExpression)] = {
         // Order matters: more specific anchors first so e.g. Objective-C
         // wins over plain C, TypeScript wins over JavaScript.
         let anchors: [(String, String)] = [
@@ -490,13 +520,13 @@ public struct CodeDetector: Sendable {
             ("json",       #"^\s*\[\s*\n[\s\S]*\{"#),
         ]
 
-        for (lang, pattern) in anchors {
-            if text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
-                return lang
+        return anchors.compactMap { (lang, pattern) in
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                return nil
             }
+            return (lang, regex)
         }
-        return nil
-    }
+    }()
 
     /// Bundle IDs for code editors / IDEs. When clipboard content
     /// originates from one of these apps, the user is almost certainly

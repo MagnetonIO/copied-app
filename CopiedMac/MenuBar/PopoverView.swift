@@ -16,18 +16,6 @@ struct PopoverView: View {
     @Environment(SyncMonitor.self) private var syncMonitor
     @Environment(SyncTicker.self) private var syncTicker
 
-    /// Change detector only. MenuBarExtra's scene-local model context can lag
-    /// behind the main window's context after CloudKit imports, so the popover
-    /// renders from `freshAllClippings` instead of trusting this @Query as its
-    /// source of truth. We still keep the query mounted because it is a cheap
-    /// local-mutation signal for user edits that originate inside the popover.
-    @Query(
-        filter: #Predicate<Clipping> { $0.deleteDate == nil },
-        sort: \Clipping.addDate,
-        order: .reverse
-    )
-    private var allClippings: [Clipping]
-
     /// Sidebar-style list roster for the popover filter menu.
     @Query(sort: \ClipList.sortOrder) private var userLists: [ClipList]
 
@@ -74,22 +62,23 @@ struct PopoverView: View {
     @State private var prefetchPendingIndices: Set<Int> = []
     @State private var prefetchDebounceTask: Task<Void, Never>?
     @State private var freshAllClippings: [Clipping] = []
+    /// Coalesce duplicate `refreshFreshClippings()` triggers — `.onAppear`,
+    /// scenePhase, and `localClippingsRevision` can fire within ~50 ms of
+    /// each other on popover reopen. Skip refresh if one ran recently
+    /// unless the caller forces it (local edit paths).
+    @State private var lastRefreshAt: Date = .distantPast
 
-    /// Fingerprint for detecting local popover-originated mutations
-    /// (favorite/pin/edit/delete) even if they do not cross a CloudKit sync
-    /// boundary and therefore do not bump `SyncTicker`.
-    private var localClippingsRevision: Int {
-        var hasher = Hasher()
-        hasher.combine(allClippings.count)
-        for clip in allClippings {
-            hasher.combine(clip.clippingID)
-            hasher.combine(clip.modifiedDate ?? clip.addDate)
-            hasher.combine(clip.deleteDate)
-            hasher.combine(clip.isPinned)
-            hasher.combine(clip.isFavorite)
-            hasher.combine(clip.list?.listID)
-        }
-        return hasher.finalize()
+    /// Bumped from local mutation paths (markUsed, favorite, pin, delete, edit
+    /// commit) so `.onChange(of: localMutationTick)` can refresh
+    /// freshAllClippings without rendering it on a per-property hash of every
+    /// clipping. The previous `localClippingsRevision` recomputed an O(N) hash
+    /// over `allClippings` on every body re-render — a CPU spike per scroll
+    /// frame for users with thousands of rows.
+    @State private var localMutationTick: Int = 0
+
+    @MainActor
+    private func bumpLocalMutationTick() {
+        localMutationTick &+= 1
     }
 
     /// Read through a brand-new ModelContext so the popover is not pinned to a
@@ -97,13 +86,22 @@ struct PopoverView: View {
     /// screenshot mismatch where the main window showed three clippings while
     /// the popover still showed one.
     @MainActor
-    private func refreshFreshClippings() {
+    private func refreshFreshClippings(force: Bool = false) {
+        // Coalesce duplicate triggers within 100 ms (e.g. .onAppear +
+        // scenePhase + localClippingsRevision all firing on reopen).
+        // Local mutations pass force:true to bypass.
+        if !force, Date().timeIntervalSince(lastRefreshAt) < 0.1 { return }
+        lastRefreshAt = Date()
+
         var descriptor = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { $0.deleteDate == nil }
         )
         descriptor.sortBy = [SortDescriptor(\Clipping.addDate, order: .reverse)]
+        // Popover renders at most maxVisibleCount rows; fetching all is
+        // wasted work that scaled linearly with history size.
+        descriptor.fetchLimit = maxVisibleCount
         let ctx = ModelContext(SharedData.container)
-        freshAllClippings = (try? ctx.fetch(descriptor)) ?? Array(allClippings)
+        freshAllClippings = (try? ctx.fetch(descriptor)) ?? []
     }
 
     /// Queue a prefetch around `index` for a batched pass ~100 ms later.
@@ -283,6 +281,12 @@ struct PopoverView: View {
             syncProfileLogger.log("trigger popover.scenePhase phase=\(String(describing: phase), privacy: .public)")
             let visible = (phase == .active)
             appState.popoverIsVisible = visible
+            // Tighten/relax the pasteboard polling cadence — 500 ms while the
+            // popover is in front, 1500 ms otherwise. Cuts idle CPU 3×.
+            clipboardService.popoverIsActive = visible
+            // scenePhase doesn't fire reliably for MenuBarExtra .window —
+            // the popover-close purge is wired through
+            // NSWindow.didResignKeyNotification below.
             guard visible else { return }
             searchFocused = true
             selectedIndex = 0
@@ -316,8 +320,16 @@ struct PopoverView: View {
         .onChange(of: syncTicker.tick) { _, _ in
             refreshFreshClippings()
         }
-        .onChange(of: localClippingsRevision) { _, _ in
-            refreshFreshClippings()
+        .onChange(of: localMutationTick) { _, _ in
+            // Force-bypass the 100 ms coalesce — local edits (favorite,
+            // pin, edit text) must reflect immediately, not be debounced.
+            refreshFreshClippings(force: true)
+        }
+        // Drop the thumbnail cache when the popover loses key window status
+        // (popover dismissed). scenePhase inactive doesn't fire reliably for
+        // MenuBarExtra .window-style; this notification does.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            ThumbnailCache.shared.purge()
         }
     }
 
@@ -563,6 +575,7 @@ struct PopoverView: View {
                                             NSPasteboard.general.setString(text, forType: .string)
                                             clipping.markUsed()
                                             try? modelContext.save()
+                                            bumpLocalMutationTick()
                                         }
                                     }
                                     if clipping.hasRichText {
@@ -632,14 +645,17 @@ struct PopoverView: View {
                                     Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
                                         clipping.isFavorite.toggle()
                                         clipping.persist()
+                                        bumpLocalMutationTick()
                                     }
                                     Button(clipping.isPinned ? "Unpin" : "Pin") {
                                         clipping.isPinned.toggle()
                                         clipping.persist()
+                                        bumpLocalMutationTick()
                                     }
                                     Divider()
                                     Button("Delete", role: .destructive) {
                                         clipping.moveToTrash()
+                                        bumpLocalMutationTick()
                                     }
                                 }
                             }
@@ -1051,6 +1067,7 @@ struct PopoverView: View {
         NSPasteboard.general.setString(transform.apply(text), forType: .string)
         clipping.markUsed()
         try? modelContext.save()
+        bumpLocalMutationTick()
     }
 
     private func copyAsRichText(_ clipping: Clipping) {
@@ -1064,6 +1081,7 @@ struct PopoverView: View {
         }
         clipping.markUsed()
         try? modelContext.save()
+        bumpLocalMutationTick()
     }
 
     private func copyAsHTML(_ clipping: Clipping) {
@@ -1077,6 +1095,7 @@ struct PopoverView: View {
         }
         clipping.markUsed()
         try? modelContext.save()
+        bumpLocalMutationTick()
     }
 
     private func copyAndPaste(_ clipping: Clipping) {
@@ -1104,12 +1123,13 @@ struct PopoverView: View {
     /// and scroll-forward both land on cache hits. Fire-and-forget — the cache
     /// returns early if an entry already exists, and failures are silent.
     ///
-    /// Previously this faulted `clip.imageData` (an `@Attribute(.externalStorage)`
-    /// blob) on the main actor before kicking off the detached decode,
-    /// which caused visible scroll hitches on image-heavy popover views.
-    /// Now we short-circuit on cache hits before touching imageData, and
-    /// fetch the blob inside the detached task via a dedicated ModelContext
-    /// so the main actor never blocks on blob I/O.
+    /// Caches-hits short-circuit before touching `imageData` so most prefetch
+    /// calls never fault the externalStorage blob. For misses, we fault the
+    /// blob through `freshAllClippings`'s long-lived popover ModelContext
+    /// (cheap, sub-ms for thumbnail-sized images), then hand the bytes to a
+    /// detached decode. This avoids spinning up a fresh ModelContext per
+    /// prefetch — the previous design accumulated short-lived contexts during
+    /// fast scroll, each retaining its materialized Clipping until ARC drained.
     private func prefetchAdjacentThumbnails(around index: Int) {
         let window = 5
         let start = max(0, index - window)
@@ -1119,19 +1139,11 @@ struct PopoverView: View {
             let clip = filtered[i]
             guard clip.hasImage else { continue }
             let clippingID = clip.clippingID
-            // Cache-hit short circuit — avoids the external-storage fault
-            // entirely for rows we already have a thumbnail for.
             if ThumbnailCache.shared.cachedThumbnail(for: clippingID, maxSize: 96) != nil {
                 continue
             }
-            let container = modelContext.container
+            guard let data = clip.imageData else { continue }
             Task.detached(priority: .utility) {
-                let ctx = ModelContext(container)
-                let descriptor = FetchDescriptor<Clipping>(
-                    predicate: #Predicate { $0.clippingID == clippingID }
-                )
-                guard let fetched = try? ctx.fetch(descriptor).first,
-                      let data = fetched.imageData else { return }
                 _ = await ThumbnailCache.shared.decodeThumbnail(for: clippingID, data: data, maxSize: 96)
             }
         }
@@ -1163,6 +1175,7 @@ struct PopoverView: View {
 
         clipping.markUsed()
         try? modelContext.save()
+        bumpLocalMutationTick()
         selectedIndex = 0
         // Invalidate cache so the re-sorted order is visible immediately
     }

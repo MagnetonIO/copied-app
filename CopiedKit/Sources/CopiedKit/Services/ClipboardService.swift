@@ -44,6 +44,10 @@ private struct CaptureResult: Sendable {
     var extractedText: String?
     var sourceURL: String?
     var videoTitle: String?
+    /// Pre-computed in Phase B (off-main) so `finalizeCapture` doesn't burn
+    /// 80+ regex compiles on `@MainActor` per system copy event.
+    var isCode: Bool = false
+    var detectedLanguage: String?
 }
 
 /// Monitors the system pasteboard and saves new clippings to SwiftData.
@@ -61,6 +65,12 @@ public final class ClipboardService {
     // the existing row; no user setting needed.
     public var captureImages: Bool = true
     public var captureRichText: Bool = true
+
+    /// Set by the Mac popover view (PopoverView's scenePhase observer) so the
+    /// polling loop can stretch its interval when the user isn't actively
+    /// looking at the popover. Default false (poll at the relaxed cadence
+    /// until the popover signals presence).
+    public var popoverIsActive: Bool = false
 
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount: Int = 0
@@ -230,7 +240,12 @@ public final class ClipboardService {
 
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                // Tight cadence while the user is in the popover; relaxed
+                // when idle. Cuts background CPU/wakeups by 3× when the
+                // popover is closed, with a worst-case 1.5 s capture lag
+                // until the user opens it.
+                let interval = await MainActor.run { self?.popoverIsActive == true } ? 500 : 1500
+                try? await Task.sleep(for: .milliseconds(interval))
                 guard !Task.isCancelled else { break }
                 await MainActor.run { self?.poll() }
             }
@@ -561,7 +576,10 @@ public final class ClipboardService {
             clipping.title = videoTitle
         }
 
-        Self.applyCategorization(to: clipping)
+        // Categorization already ran off-main in processCapture (Phase B).
+        // Just assign the precomputed result onto the Clipping.
+        clipping.isCode = result.isCode
+        clipping.detectedLanguage = result.detectedLanguage
 
         clipping.appName = input.appName
         clipping.appBundleID = input.appBundleID
@@ -622,7 +640,16 @@ public final class ClipboardService {
             result.richTextData = rtf
             result.hasRichText = true
         }
-        if let html = input.htmlData {
+        // Gate htmlData on size + structural richness. Most modern apps stuff
+        // a plaintext-equivalent HTML wrapper (a few <span>s around text) onto
+        // every clipboard write; storing those bytes triggered a per-capture
+        // SwiftData externalStorage write + CKAsset upload + iOS download
+        // chain. Drop trivial wrappers — the plain `text` field is already
+        // captured for them, no fidelity loss.
+        if let html = input.htmlData,
+           html.count >= 500,
+           let htmlString = String(data: html, encoding: .utf8),
+           !CodeDetector.htmlIsTrivialWrapper(htmlString) {
             result.htmlData = html
             result.hasHTML = true
         }
@@ -658,6 +685,18 @@ public final class ClipboardService {
             result.imageWidth = dims.width
             result.imageHeight = dims.height
         }
+
+        // Categorize off-main so finalizeCapture (Phase C) doesn't burn
+        // 80+ regex compiles on @MainActor per system copy event.
+        let cat = Self.categorize(
+            text: input.text,
+            types: input.types,
+            hasHTML: result.hasHTML,
+            htmlData: result.htmlData,
+            appBundleID: input.appBundleID
+        )
+        result.isCode = cat.isCode
+        result.detectedLanguage = cat.detectedLanguage
 
         return result
     }
@@ -915,7 +954,10 @@ public final class ClipboardService {
 
     // MARK: - Reclassify Existing Clippings
 
-    private static let reclassifyKey = "didReclassifyClippingsV5"
+    // Bump V5→V6 so the fix re-runs on every device — this re-applies the
+    // migration via an ephemeral context, clearing any state that the V5
+    // run left registered in the shared env context.
+    private static let reclassifyKey = "didReclassifyClippingsV6"
 
     /// One-time migration: re-runs URL and categorization on existing
     /// clippings. V3 introduces UTI-based source-code detection, markdown
@@ -926,12 +968,22 @@ public final class ClipboardService {
         guard !UserDefaults.standard.bool(forKey: Self.reclassifyKey) else { return }
         guard let modelContext else { return }
 
+        // Use an EPHEMERAL ModelContext for the migration. Previously this
+        // ran on the shared env modelContext, which left up to 5000
+        // materialized Clipping objects + their @Observable registrar state
+        // (~25 KB each = ~125 MB) registered in the app-lifetime context
+        // forever. With an ephemeral context, the materialized objects
+        // drop out of scope when the function returns and ARC releases
+        // them (and their Observation tracking entries). Saved mutations
+        // still propagate to SQLite + CloudKit identically.
+        let migrationCtx = ModelContext(modelContext.container)
+
         var descriptor = FetchDescriptor<Clipping>(
             predicate: #Predicate<Clipping> { $0.deleteDate == nil }
         )
         descriptor.fetchLimit = 5000
 
-        guard let clippings = try? modelContext.fetch(descriptor) else { return }
+        guard let clippings = try? migrationCtx.fetch(descriptor) else { return }
 
         var changed = false
         for clipping in clippings {
@@ -949,18 +1001,17 @@ public final class ClipboardService {
                 }
             }
 
-            // Re-run the new categorization chain. Captures markdown,
-            // UTI source-code, and downgrades trivial HTML wrappers.
-            let beforeIsCode = clipping.isCode
-            let beforeLang = clipping.detectedLanguage
-            Self.applyCategorization(to: clipping)
-            if beforeIsCode != clipping.isCode || beforeLang != clipping.detectedLanguage {
+            // Re-run the new categorization chain. applyCategorization now
+            // returns true only when it actually mutated a property, so
+            // unchanged records don't dirty the SQLite write or the
+            // CKSyncEngine upload queue.
+            if Self.applyCategorization(to: clipping) {
                 changed = true
             }
         }
 
         if changed {
-            try? modelContext.save()
+            try? migrationCtx.save()
         }
         UserDefaults.standard.set(true, forKey: Self.reclassifyKey)
     }
@@ -1008,74 +1059,86 @@ public final class ClipboardService {
         return trimmed.isEmpty ? nil : String(trimmed.prefix(5000))
     }
 
-    /// Single source of truth for code/markdown/html categorization.
-    /// Priority order: pasteboard UTI source-code → strong anchor patterns
-    /// → markdown text → rich HTML → IDE source hint → plain-text
-    /// heuristic. Setting `isCode` + `detectedLanguage` drives
-    /// `Clipping.contentKind` (`Models/Clipping.swift`), which picks the
-    /// badge ("Code"/"Markdown"/"Html") and the detail-panel renderer.
-    @MainActor
-    static func applyCategorization(to clipping: Clipping) {
+    /// Pure categorization: same priority chain as `applyCategorization` but
+    /// parameterized so it can run off `@MainActor` from `processCapture`
+    /// (Phase B). Avoids burning 80+ regex compiles on the main thread per
+    /// system copy event — that was the "app unusable after copy" symptom.
+    nonisolated static func categorize(
+        text: String?,
+        types: [String],
+        hasHTML: Bool,
+        htmlData: Data?,
+        appBundleID: String?
+    ) -> (isCode: Bool, detectedLanguage: String?) {
         // 1. Pasteboard UTI says it's source code — strongest signal.
-        if let lang = CodeDetector.languageFromUTIs(clipping.types) {
-            clipping.isCode = true
-            clipping.detectedLanguage = lang
-            return
+        if let lang = CodeDetector.languageFromUTIs(types) {
+            return (true, lang)
         }
-        // 2. High-confidence regex anchors (e.g. `import java.`,
-        //    `^def \w+\(:`, `<!DOCTYPE html>`). Catches single-function
-        //    snippets that the keyword heuristic misses for being short.
-        if let text = clipping.text, let lang = CodeDetector.anchorLanguage(in: text) {
-            clipping.isCode = true
-            clipping.detectedLanguage = lang
-            return
+        // 2. High-confidence regex anchors.
+        if let text, let lang = CodeDetector.anchorLanguage(in: text) {
+            return (true, lang)
         }
-        // 2.5 Structured config formats (YAML / JSON / TOML / Dockerfile /
-        //    Makefile). Must run BEFORE markdown — YAML's `- item` lists
-        //    and `---` separators were tipping the markdown heuristic
-        //    over its threshold.
-        if let text = clipping.text, let lang = CodeDetector.configLanguage(in: text) {
-            clipping.isCode = true
-            clipping.detectedLanguage = lang
-            return
+        // 2.5 Structured config formats (YAML / JSON / TOML / Dockerfile / Makefile).
+        if let text, let lang = CodeDetector.configLanguage(in: text) {
+            return (true, lang)
         }
-        // 3. Markdown markers in the plain text body. Beats HTML wrappers
-        //    that ChatGPT/Notion/Bear/Obsidian put around markdown source.
-        if let text = clipping.text, CodeDetector.looksLikeMarkdown(text) {
-            clipping.isCode = true
-            clipping.detectedLanguage = "markdown"
-            return
+        // 3. Markdown markers — beats HTML wrappers around markdown.
+        if let text, CodeDetector.looksLikeMarkdown(text) {
+            return (true, "markdown")
         }
-        // 4. Real, structurally-rich HTML (tables, lists, links, scripts).
-        //    Trivial HTML wrappers fall through to step 5.
-        if clipping.hasHTML,
-           let data = clipping.htmlData,
+        // 4. Real, structurally-rich HTML.
+        if hasHTML,
+           let data = htmlData,
            let html = String(data: data, encoding: .utf8),
            !CodeDetector.htmlIsTrivialWrapper(html) {
-            clipping.isCode = true
-            clipping.detectedLanguage = "html"
-            return
+            return (true, "html")
         }
-        // 5. Source app is a known code editor → assume code even if
-        //    the snippet is too short / boilerplate-light to anchor.
-        //    Use the IDE's primary language as the default tag.
-        if let bundleID = clipping.appBundleID,
+        // 5. Source app is a known code editor.
+        if let bundleID = appBundleID,
            CodeDetector.codeEditorBundleIDs.contains(bundleID) {
-            clipping.isCode = true
-            clipping.detectedLanguage =
-                CodeDetector.defaultLanguageForIDE(bundleID)
-                ?? clipping.text.flatMap { CodeDetector.detect(in: $0).language }
-            return
+            let lang = CodeDetector.defaultLanguageForIDE(bundleID)
+                ?? text.flatMap { CodeDetector.detect(in: $0).language }
+            return (true, lang)
         }
-        // 6. Keyword-heuristic on plain text fallback (existing behavior).
-        if let text = clipping.text {
-            let detection = CodeDetector.detect(in: text)
-            clipping.isCode = detection.isCode
-            clipping.detectedLanguage = detection.language
-        } else {
-            clipping.isCode = false
-            clipping.detectedLanguage = nil
+        // 6. Keyword-heuristic plain-text fallback.
+        if let text {
+            let d = CodeDetector.detect(in: text)
+            return (d.isCode, d.isCode ? d.language : nil)
         }
+        return (false, nil)
+    }
+
+    /// Main-actor wrapper kept for `reclassifyIfNeeded` migration callers
+    /// that have a Clipping in hand. Runs the same categorization synchronously.
+    /// New captures should NOT use this — they get categorization from
+    /// `processCapture` (Phase B) for free.
+    /// Returns true if the categorization actually changed any property on
+    /// the clipping. Callers can use this to avoid saving a clean record
+    /// (which would otherwise dirty it for the next CKSyncEngine push).
+    @MainActor
+    @discardableResult
+    static func applyCategorization(to clipping: Clipping) -> Bool {
+        let result = categorize(
+            text: clipping.text,
+            types: clipping.types,
+            hasHTML: clipping.hasHTML,
+            htmlData: clipping.htmlData,
+            appBundleID: clipping.appBundleID
+        )
+        var changed = false
+        // Only assign when the value actually differs — otherwise SwiftData
+        // marks the property as dirty even on no-op assignments and the
+        // record gets re-uploaded. This was tipping the V6 migration into
+        // a 5000-record CKSyncEngine flood.
+        if clipping.isCode != result.isCode {
+            clipping.isCode = result.isCode
+            changed = true
+        }
+        if clipping.detectedLanguage != result.detectedLanguage {
+            clipping.detectedLanguage = result.detectedLanguage
+            changed = true
+        }
+        return changed
     }
 
     // MARK: - Dedup & Limits

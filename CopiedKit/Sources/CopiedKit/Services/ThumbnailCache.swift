@@ -22,11 +22,20 @@ public final class ThumbnailCache: @unchecked Sendable {
     }
 
     private init() {
-        // Sized for full scroll cycles of long clipboard histories: 2000 entries
-        // at up to 150 MB. With two size variants (32, 120) that's ~1000 thumbnails,
-        // covering ~1000 image clippings without eviction on scroll-back.
-        cache.countLimit = 2000
-        cache.totalCostLimit = 150 * 1024 * 1024
+        // Right-sized for a menu-bar utility: keep a few hundred recently-
+        // viewed thumbnails hot. NSCache miss = re-decode in 60-200 µs via
+        // CGImageSourceCreateThumbnailAtIndex, well under a frame budget.
+        // The previous 150 MB budget held all decoded RGBA in memory and
+        // pushed steady-state RSS past 300 MB after browsing image-heavy
+        // histories.
+        cache.countLimit = 400
+        cache.totalCostLimit = 25 * 1024 * 1024
+    }
+
+    /// Drops every cached thumbnail. Call when the popover dismisses so
+    /// the menu-bar app's resident set returns to baseline between uses.
+    public func purge() {
+        cache.removeAllObjects()
     }
 
     /// Returns a cached thumbnail, decoding and downsampling only on cache miss.
