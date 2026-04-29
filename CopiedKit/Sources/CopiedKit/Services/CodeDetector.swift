@@ -1,6 +1,42 @@
 import Foundation
+import NaturalLanguage
 
 public struct CodeDetector: Sendable {
+
+    /// Tier 0 disqualifier: if NLTagger says the text is mostly natural
+    /// English (≥ 70% of words tagged as nouns/verbs/adjectives/etc.), skip
+    /// every code-detection pass. Catches the entire class of "prose
+    /// mentioning programming concepts gets tagged as that language" bugs
+    /// — e.g. "Defer until next week" matching Zig, "Auto-update" matching
+    /// SQL, "Lambda calculus: …" matching Python.
+    ///
+    /// Cost: ~1-5 ms per call on a 500-char snippet (off-main, in
+    /// `processCapture` Phase B). NLTagger initializes lazily — first call
+    /// per process pays a ~50 ms model load; subsequent calls are fast.
+    public static func looksLikeProseNL(_ text: String) -> Bool {
+        guard text.count >= 50 else { return false }
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        tagger.string = text
+        var natural = 0
+        var total = 0
+        let opts: NLTagger.Options = [.omitWhitespace, .omitPunctuation]
+        let proseTags: Set<NLTag> = [
+            .noun, .verb, .adjective, .adverb,
+            .pronoun, .determiner, .preposition, .conjunction
+        ]
+        tagger.enumerateTags(
+            in: text.startIndex..<text.endIndex,
+            unit: .word, scheme: .lexicalClass, options: opts
+        ) { tag, _ in
+            total += 1
+            if let tag, proseTags.contains(tag) {
+                natural += 1
+            }
+            return true
+        }
+        return total > 0 && Double(natural) / Double(total) > 0.7
+    }
+
     public struct Result: Sendable {
         public let isCode: Bool
         public let language: String?
@@ -97,6 +133,34 @@ public struct CodeDetector: Sendable {
         let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard nonEmptyLines.count >= 3 else { return nil }
 
+        // Disqualifier: if the text contains lines starting with code-language
+        // keywords, it is NOT a config file. Python type annotations like
+        // `x: int = 5` and `self.foo = bar` otherwise look like YAML/TOML
+        // key:value lines and falsely trigger the structural detector.
+        // Real YAML / TOML / Dockerfile / Makefile never start lines with
+        // these tokens.
+        let codeLines = nonEmptyLines.filter { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            // Python
+            if t.hasPrefix("def ") || t.hasPrefix("class ") || t.hasPrefix("async def ") { return true }
+            if t.hasPrefix("from ") && t.contains(" import ") { return true }
+            if t.hasPrefix("self.") || t.hasPrefix("cls.") { return true }
+            // Swift / Rust / Kotlin / Go
+            if t.hasPrefix("import ") || t.hasPrefix("use ") || t.hasPrefix("package ") { return true }
+            if t.hasPrefix("func ") || t.hasPrefix("fn ") { return true }
+            if t.hasPrefix("struct ") || t.hasPrefix("enum ") || t.hasPrefix("protocol ") { return true }
+            // JS / TS
+            if t.hasPrefix("function ") || t.hasPrefix("const ") || t.hasPrefix("export ") { return true }
+            // Decorators / annotations (Python @, Swift @, Java @, TS @)
+            if t.hasPrefix("@") && t.count > 1 {
+                return t[t.index(after: t.startIndex)].isLetter
+            }
+            return false
+        }
+        if codeLines.count >= 1 {
+            return nil
+        }
+
         // YAML: lines matching "key: value" or "- item" pattern, with indentation
         let yamlKeyValue = nonEmptyLines.filter { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -112,7 +176,13 @@ public struct CodeDetector: Sendable {
             if trimmed.hasPrefix("- ") { return true }
             return false
         }
-        if yamlKeyValue.count >= 3 && Double(yamlKeyValue.count) / Double(nonEmptyLines.count) > 0.5 {
+        // Two ways to qualify as YAML:
+        //   1. ≥ 3 key:value lines AND > 50% of total lines (strict)
+        //   2. ≥ 2 key:value lines AND > 30% (loose — covers small files
+        //      and YAML with embedded `run: |` shell blocks where the
+        //      embedded content drags the structural ratio down)
+        if (yamlKeyValue.count >= 3 && Double(yamlKeyValue.count) / Double(nonEmptyLines.count) > 0.5) ||
+           (yamlKeyValue.count >= 2 && Double(yamlKeyValue.count) / Double(nonEmptyLines.count) > 0.3) {
             return "yaml"
         }
 
@@ -183,7 +253,11 @@ public struct CodeDetector: Sendable {
             LanguagePattern(name: "java", keywords: ["public class", "private ", "void ", "System.out", "new ", "return ", "throws ", "@Override", "import java."], minMatches: 3),
             LanguagePattern(name: "html", keywords: ["<html", "<div", "<span", "<body", "<!DOCTYPE", "<head", "<script", "</"], minMatches: 3),
             LanguagePattern(name: "css", keywords: ["color:", "margin:", "padding:", "display:", "font-size:", "background:", "{", "}"], minMatches: 3),
-            LanguagePattern(name: "shell", keywords: ["#!/bin", "echo ", "if [", "fi", "done", "export ", "chmod ", "grep ", "| "], minMatches: 3),
+            // Shell — was matching YAML literal blocks ("| ") and generic
+            // "export " / "done" in non-shell content. Shebang or "if [...]"
+            // bracket syntax are the only truly distinctive shell shapes;
+            // require 4 matches and drop the ambiguous tokens.
+            LanguagePattern(name: "shell", keywords: ["#!/bin", "echo \"", "echo '", "if [ ", "fi\n", "chmod +", "grep -", "$(", "${"], minMatches: 4),
             LanguagePattern(name: "xml", keywords: ["<?xml", "<!", "xmlns", "/>", "</"], minMatches: 2),
             LanguagePattern(name: "sql", keywords: ["SELECT ", "FROM ", "WHERE ", "INSERT ", "UPDATE ", "CREATE TABLE", "ALTER ", "DROP ", "JOIN "], minMatches: 2),
             LanguagePattern(name: "ruby", keywords: ["def ", "end", "puts ", "require ", "class ", "attr_", "do |", ".each ", "nil", "elsif"], minMatches: 3),
@@ -324,209 +398,272 @@ public struct CodeDetector: Sendable {
         guard text.count <= 64_000 else { return nil }
         let nsText = text as NSString
         let range = NSRange(location: 0, length: nsText.length)
-        for (lang, regex) in compiledAnchors {
+
+        // Tier 1 (strong anchors): patterns with structural shape that's
+        // extremely unlikely outside source code (e.g. `<?php`, `<!DOCTYPE`,
+        // `import Foundation`, shebang lines). A single match is enough.
+        for (lang, regex) in compiledStrongAnchors {
             if regex.firstMatch(in: text, options: [], range: range) != nil {
                 return lang
             }
         }
+
+        // Tier 2 (weak anchors): bare-keyword patterns that overlap with
+        // common English words (UPDATE, lambda, defer, end, type X =).
+        // Require ≥ 2 DISTINCT weak anchors of the same language before
+        // tagging. Single matches fall through to the keyword heuristic
+        // (which already requires ≥ 3 keyword matches).
+        var hitsByLang: [String: Int] = [:]
+        for (lang, regex) in compiledWeakAnchors {
+            if regex.firstMatch(in: text, options: [], range: range) != nil {
+                hitsByLang[lang, default: 0] += 1
+            }
+        }
+        if let best = hitsByLang.max(by: { $0.value < $1.value }), best.value >= 2 {
+            return best.key
+        }
         return nil
     }
 
-    /// Compiled-once cache of the anchor patterns. Building NSRegularExpression
-    /// from a pattern string costs ~50-500 µs each — doing that for ~100
-    /// patterns on every clipboard capture (on `@MainActor`) accumulated to
-    /// 50-200 ms of main-thread stall right when the user reopened the
-    /// popover. Compiling once at class-init makes per-call cost a hash
-    /// lookup + regex match only.
-    private static let compiledAnchors: [(language: String, regex: NSRegularExpression)] = {
-        // Order matters: more specific anchors first so e.g. Objective-C
-        // wins over plain C, TypeScript wins over JavaScript.
-        let anchors: [(String, String)] = [
-            // Objective-C
-            ("objective-c", #"@(interface|implementation|protocol)\s+\w+"#),
-            ("objective-c", #"^\s*#import\s*[<"]"#),
-            // Swift — Xcode + Foundation/SwiftUI imports are dead giveaways
-            ("swift",      #"^\s*import\s+(Foundation|SwiftUI|UIKit|AppKit|Combine|SwiftData|CoreData|CloudKit|XCTest)"#),
-            ("swift",      #"\bfunc\s+\w+\s*(<[^>]+>)?\s*\([^)]*\)\s*(async\s+)?(throws\s+)?->"#),
-            ("swift",      #"@(State|Binding|Environment|EnvironmentObject|Observable|Published|Model|Query|MainActor|escaping)\b"#),
-            ("swift",      #"\bguard\s+let\s+\w+\s*="#),
-            ("swift",      #"\bif\s+let\s+\w+\s*="#),
-            // Python — wide net: many short snippets only contain
-            // `import X` or `for x in y:` and would otherwise miss the
-            // keyword heuristic (which needs 3 matches).
-            ("python",     #"^\s*def\s+\w+\s*\([^)]*\)\s*(->\s*[\w\[\],\s]+)?\s*:"#),
-            ("python",     #"^\s*from\s+[\w.]+\s+import\s+"#),
-            ("python",     #"^\s*import\s+[\w.]+(\s+as\s+\w+)?\s*$"#),
-            ("python",     #"^\s*if\s+__name__\s*==\s*[\"']__main__[\"']\s*:"#),
-            ("python",     #"^\s*class\s+\w+\s*(\([^)]*\))?\s*:"#),
-            ("python",     #"^\s*for\s+\w+(\s*,\s*\w+)*\s+in\s+\S.*:\s*$"#),
-            ("python",     #"^\s*(if|elif|while|with|try|except|finally|else)\b[^{]*:\s*$"#),
-            ("python",     #"\bprint\s*\([^)]*\)\s*$"#),
-            ("python",     #"\bf['\"][^'\"]*\{[^}]+\}[^'\"]*['\"]"#),
-            ("python",     #"\b(self|cls)\.\w+\s*[=(]"#),
-            ("python",     #"\blambda\s+[\w,\s]*\s*:"#),
-            // Rust
-            ("rust",       #"\bfn\s+\w+\s*(<[^>]+>)?\s*\([^)]*\)"#),
-            ("rust",       #"^\s*use\s+\w+(::\w+)+\s*;"#),
-            ("rust",       #"\b(impl|trait)\s+\w+(\s+for\s+\w+)?\s*\{"#),
-            ("rust",       #"\blet\s+mut\s+\w+"#),
-            ("rust",       #"-> Result<"#),
-            // Java
-            ("java",       #"^\s*import\s+java\."#),
-            ("java",       #"\b(public|private|protected)\s+(static\s+)?(final\s+)?(void|int|String|boolean|double|float|long|char|byte)\s+\w+\s*\("#),
-            ("java",       #"\bSystem\.out\.println\s*\("#),
-            ("java",       #"@Override\b"#),
-            ("java",       #"\bpublic\s+class\s+\w+"#),
-            // Kotlin
-            ("kotlin",     #"\bfun\s+\w+\s*\([^)]*\)\s*:"#),
-            ("kotlin",     #"^\s*data\s+class\s+\w+\s*\("#),
-            ("kotlin",     #"^\s*sealed\s+(class|interface)\s+\w+"#),
-            // C++
-            ("cpp",        #"\bstd::\w+"#),
-            ("cpp",        #"^\s*#include\s*<\w+>\s*$"#),
-            ("cpp",        #"\bnamespace\s+\w+\s*\{"#),
-            ("cpp",        #"\btemplate\s*<"#),
-            // C
-            ("c",          #"^\s*#include\s*[<\"][\w./]+[>\"]"#),
-            ("c",          #"\b(int|void|char|float|double)\s+\w+\s*\([^)]*\)\s*\{"#),
-            ("c",          #"\bprintf\s*\("#),
-            ("c",          #"\b(malloc|calloc|free)\s*\("#),
-            ("c",          #"\btypedef\s+struct\b"#),
-            // Go
-            ("go",         #"^\s*package\s+\w+\s*$"#),
-            ("go",         #"\bfunc\s+(\(\s*\w+\s+\*?\w+\s*\)\s+)?\w+\s*\("#),
-            ("go",         #"^\s*import\s+\("#),
-            ("go",         #"\bfmt\.\w+\s*\("#),
-            ("go",         #":=\s*"#),
-            // TypeScript (before JS — TS is a superset)
-            ("typescript", #"\binterface\s+\w+\s*\{"#),
-            ("typescript", #"\btype\s+\w+\s*=\s*"#),
-            ("typescript", #":\s*(string|number|boolean|void|any|unknown|never)\b"#),
-            // JavaScript
-            ("javascript", #"\bconst\s+\w+\s*=\s*(\([^)]*\)\s*=>|async\s+\([^)]*\)\s*=>|function)"#),
-            ("javascript", #"\bfunction\s+\w+\s*\("#),
-            ("javascript", #"\b(console\.(log|error|warn)|require\s*\(|module\.exports|export\s+(default|const|function|class))"#),
-            ("javascript", #"=>\s*\{"#),
-            // PHP
-            ("php",        #"<\?php"#),
-            ("php",        #"\$\w+\s*=\s*"#),
-            // Ruby
-            ("ruby",       #"^\s*def\s+\w+(\s*\([^)]*\))?\s*$"#),
-            ("ruby",       #"^\s*require\s+['\"]"#),
-            ("ruby",       #"\bend\s*$"#),
-            // C#
-            ("csharp",     #"^\s*using\s+System(\.\w+)*\s*;"#),
-            ("csharp",     #"\bnamespace\s+\w+(\.\w+)*\s*[\{;]"#),
-            ("csharp",     #"\b(public|private|protected|internal)\s+(static\s+)?(async\s+)?(class|record|interface|struct|enum)\s+\w+"#),
-            ("csharp",     #"\bConsole\.(WriteLine|Write|ReadLine)\s*\("#),
-            ("csharp",     #"\bvar\s+\w+\s*=\s*new\s+\w+"#),
-            // R
-            ("r",          #"^\s*library\s*\(\s*\w+\s*\)"#),
-            ("r",          #"<-\s*function\s*\("#),
-            ("r",          #"\bdata\.frame\s*\("#),
-            ("r",          #"\bggplot\s*\("#),
-            ("r",          #"%>%"#),
-            // Dart / Flutter
-            ("dart",       #"^\s*import\s+'package:flutter/"#),
-            ("dart",       #"^\s*import\s+'dart:"#),
-            ("dart",       #"\bWidget\s+build\s*\(\s*BuildContext\s+\w+\s*\)"#),
-            ("dart",       #"\b(StatelessWidget|StatefulWidget|MaterialApp)\b"#),
-            ("dart",       #"\bvoid\s+main\s*\(\s*\)\s*\{"#),
-            // Scala
-            ("scala",      #"^\s*package\s+\w+(\.\w+)*\s*$"#),
-            ("scala",      #"^\s*import\s+scala\."#),
-            ("scala",      #"\b(case\s+class|object|trait|sealed\s+trait)\s+\w+"#),
-            ("scala",      #"\bdef\s+\w+\s*\([^)]*\)\s*:\s*\w+\s*="#),
-            // Lua
-            ("lua",        #"\bfunction\s+\w+(\.\w+|:\w+)?\s*\([^)]*\)"#),
-            ("lua",        #"\blocal\s+\w+\s*="#),
-            ("lua",        #"\brequire\s*\(?\s*['\"][\w.]+['\"]"#),
-            ("lua",        #"\bend\s*$.*\n.*\bend\s*$"#),
-            // Perl
-            ("perl",       #"^\s*use\s+strict\s*;"#),
-            ("perl",       #"^\s*use\s+warnings\s*;"#),
-            ("perl",       #"\bmy\s+\$\w+\s*="#),
-            ("perl",       #"\bsub\s+\w+\s*\{"#),
-            ("perl",       #"\$\w+\s*=~\s*[ms]?/"#),
-            // Haskell
-            ("haskell",    #"^\s*module\s+\w+(\.\w+)*\s+where"#),
-            ("haskell",    #"^\s*import\s+(qualified\s+)?[A-Z]\w*(\.\w+)*"#),
-            ("haskell",    #"::\s*(IO|Maybe|Either|\[a\])\b"#),
-            ("haskell",    #"^\w+\s*::\s+"#),
-            // Elixir
-            ("elixir",     #"^\s*defmodule\s+\w+(\.\w+)*\s+do\b"#),
-            ("elixir",     #"^\s*def\s+\w+(\([^)]*\))?\s+do\b"#),
-            ("elixir",     #"\b(IO\.puts|IO\.inspect)\s*\("#),
-            ("elixir",     #"\|>"#),
-            // Erlang
-            ("erlang",     #"^-module\s*\(\s*\w+\s*\)\s*\."#),
-            ("erlang",     #"^-export\s*\(\s*\["#),
-            ("erlang",     #"\bspawn\s*\(\s*fun\b"#),
-            // Clojure
-            ("clojure",    #"^\s*\(\s*ns\s+[\w.\-]+"#),
-            ("clojure",    #"\(\s*defn?\s+\w+"#),
-            ("clojure",    #"\(\s*println\s+"#),
-            // F#
-            ("fsharp",     #"^\s*module\s+[\w.]+\s*$"#),
-            ("fsharp",     #"^\s*let\s+\w+\s+\w+(\s+\w+)*\s+="#),
-            ("fsharp",     #"^\s*open\s+System(\.\w+)*\s*$"#),
-            ("fsharp",     #"\bprintfn\s+"#),
-            // Zig (emerging systems language)
-            ("zig",        #"\bconst\s+std\s*=\s*@import\s*\(\s*['\"]std['\"]\s*\)"#),
-            ("zig",        #"\bpub\s+fn\s+\w+\s*\("#),
-            ("zig",        #"\bfn\s+main\s*\(\s*\)\s+!?void\s*\{"#),
-            ("zig",        #"@(import|cImport|TypeOf|ptrCast|sizeOf|panic)\s*\("#),
-            ("zig",        #"\b(comptime|errdefer|defer)\s+"#),
-            // Mojo (emerging — Python-superset for AI)
-            ("mojo",       #"^\s*fn\s+\w+\s*\([^)]*\)(\s*->\s*\w+)?\s*(raises\s+)?:"#),
-            ("mojo",       #"^\s*struct\s+\w+\s*:"#),
-            ("mojo",       #"^\s*from\s+\w+\s+import\s+.*\n.*alias\s+"#),
-            // Julia (scientific computing)
-            ("julia",      #"^\s*using\s+\w+(\s*,\s*\w+)*\s*$"#),
-            ("julia",      #"^\s*function\s+\w+\s*\([^)]*\)\s*$"#),
-            ("julia",      #"^\s*end\s*$.*\n.*function\s+\w+"#),
-            ("julia",      #"\bprintln\s*\("#),
-            ("julia",      #"::Vector\{|::Array\{|::Float64|::Int64"#),
-            // OCaml (functional)
-            ("ocaml",      #"^\s*let\s+rec\s+\w+\s+\w+(\s+\w+)*\s+="#),
-            ("ocaml",      #"^\s*open\s+[A-Z]\w*(\.\w+)*\s*$"#),
-            ("ocaml",      #"\bmatch\s+.+\s+with\s*\n\s*\|"#),
-            ("ocaml",      #"\bPrintf\.printf\s+"#),
-            // V language (emerging)
-            ("v",          #"^\s*module\s+\w+\s*$"#),
-            ("v",          #"^\s*fn\s+main\s*\(\s*\)\s*\{"#),
-            ("v",          #"\bprintln\s*\(\s*['\"]"#),
-            // Nim (emerging — Python-like, native)
-            ("nim",        #"^\s*proc\s+\w+\s*\([^)]*\)\s*:\s*\w+\s*=\s*$"#),
-            ("nim",        #"^\s*import\s+(strutils|sequtils|tables|os|std/)"#),
-            ("nim",        #"\becho\s+['\"]"#),
-            // Gleam (emerging — Erlang VM, typed)
-            ("gleam",      #"^\s*pub\s+fn\s+\w+\s*\("#),
-            ("gleam",      #"^\s*import\s+gleam/"#),
-            // Shell
-            ("shell",      #"^#!/bin/(bash|sh|zsh|dash)"#),
-            ("shell",      #"^#!/usr/bin/env\s+(bash|sh|zsh)"#),
-            // SQL
-            ("sql",        #"\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)\b"#),
-            // HTML
-            ("html",       #"<!DOCTYPE\s+html"#),
-            ("html",       #"<html[\s>]"#),
-            ("html",       #"</?(div|span|p|table|body|head|meta|script|style|h[1-6]|ul|ol|li|img|input|form|button|nav|header|footer|section|article|main|aside)[\s/>]"#),
-            // CSS
-            ("css",        #"^@(media|import|keyframes|font-face|supports|charset)\b"#),
-            ("css",        #"\b(color|background-color|margin|padding|font-size|display|position|width|height|border)\s*:\s*[#\d\w'-]"#),
-            // JSON (structural)
-            ("json",       #"^\s*\{\s*\n[\s\S]*\"[^\"]+\"\s*:"#),
-            ("json",       #"^\s*\[\s*\n[\s\S]*\{"#),
-        ]
+    /// Compiled once at class-init. Two-tier classification:
+    ///
+    /// - **Strong**: structural patterns that don't appear in English prose
+    ///   (`<?php`, `<!DOCTYPE`, `import Foundation`, shebangs, `@import("std")`,
+    ///   typed function signatures with `->`). Single match → return the lang.
+    /// - **Weak**: bare-keyword patterns that overlap with common English
+    ///   words (UPDATE, lambda, defer, end, type X =). Need ≥ 2 distinct
+    ///   weak anchors of the same language before tagging — prevents prose
+    ///   like "Auto-update" from matching SQL or "Defer until..." matching Zig.
+    ///
+    /// Both lists are compiled CASE-SENSITIVELY — was case-insensitive
+    /// before, which let prose lowercase words match uppercase code keywords.
+    private static let compiledStrongAnchors: [(language: String, regex: NSRegularExpression)] = {
+        compile(strongAnchorPatterns)
+    }()
+    private static let compiledWeakAnchors: [(language: String, regex: NSRegularExpression)] = {
+        compile(weakAnchorPatterns)
+    }()
 
-        return anchors.compactMap { (lang, pattern) in
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-                return nil
-            }
+    private static func compile(_ patterns: [(String, String)]) -> [(language: String, regex: NSRegularExpression)] {
+        patterns.compactMap { (lang, pattern) in
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
             return (lang, regex)
         }
-    }()
+    }
+
+    /// Strong anchors — structural shape that essentially never appears in
+    /// natural-language prose. Order matters: more specific first so e.g.
+    /// Objective-C wins over plain C, TypeScript wins over JavaScript.
+    private static let strongAnchorPatterns: [(String, String)] = [
+        // Objective-C — @interface/@implementation/@protocol + identifier
+        ("objective-c", #"@(interface|implementation|protocol)\s+\w+"#),
+        ("objective-c", #"^\s*#import\s*[<"]"#),
+        // Swift — Apple framework imports + typed signatures
+        ("swift",      #"^\s*import\s+(Foundation|SwiftUI|UIKit|AppKit|Combine|SwiftData|CoreData|CloudKit|XCTest)"#),
+        ("swift",      #"\bfunc\s+\w+\s*(<[^>]+>)?\s*\([^)]*\)\s*(async\s+)?(throws\s+)?->"#),
+        ("swift",      #"@(State|Binding|Environment|EnvironmentObject|Observable|Published|Model|Query|MainActor|escaping)\b"#),
+        // Python — line-anchored structural patterns
+        ("python",     #"^\s*def\s+\w+\s*\([^)]*\)\s*(->\s*[\w\[\],\s]+)?\s*:"#),
+        ("python",     #"^\s*from\s+[\w.]+\s+import\s+"#),
+        ("python",     #"^\s*if\s+__name__\s*==\s*[\"']__main__[\"']\s*:"#),
+        ("python",     #"^\s*class\s+\w+\s*(\([^)]*\))?\s*:"#),
+        // Rust
+        ("rust",       #"\bimpl\s+\w+(\s+for\s+\w+)?\s*\{"#),
+        ("rust",       #"^\s*use\s+\w+(::\w+)+\s*;"#),
+        ("rust",       #"\btrait\s+\w+\s*\{"#),
+        // Java
+        ("java",       #"^\s*import\s+java\."#),
+        ("java",       #"\bSystem\.out\.println\s*\("#),
+        ("java",       #"@Override\b"#),
+        // Kotlin
+        ("kotlin",     #"^\s*data\s+class\s+\w+\s*\("#),
+        ("kotlin",     #"^\s*sealed\s+(class|interface)\s+\w+"#),
+        // C++
+        ("cpp",        #"\bstd::\w+"#),
+        ("cpp",        #"^\s*#include\s*<\w+>\s*$"#),
+        ("cpp",        #"\bnamespace\s+\w+\s*\{"#),
+        // C
+        ("c",          #"^\s*#include\s*[<\"][\w./]+[>\"]"#),
+        ("c",          #"\btypedef\s+struct\b"#),
+        // Go
+        ("go",         #"^\s*package\s+\w+\s*$"#),
+        ("go",         #"\bfunc\s+(\(\s*\w+\s+\*?\w+\s*\)\s+)?\w+\s*\("#),
+        ("go",         #"^\s*import\s+\("#),
+        ("go",         #"\bfmt\.\w+\s*\("#),
+        // TypeScript
+        ("typescript", #"\binterface\s+\w+\s*\{"#),
+        // JavaScript — arrow functions + module syntax
+        ("javascript", #"\bconst\s+\w+\s*=\s*(\([^)]*\)\s*=>|async\s+\([^)]*\)\s*=>|function)"#),
+        ("javascript", #"\b(console\.(log|error|warn)|require\s*\(|module\.exports|export\s+(default|const|function|class))"#),
+        ("javascript", #"=>\s*\{"#),
+        // PHP
+        ("php",        #"<\?php"#),
+        // Ruby — strong shapes only (def + body); bare `end` removed
+        ("ruby",       #"^\s*def\s+\w+(\s*\([^)]*\))?\s*$"#),
+        ("ruby",       #"^\s*require\s+['\"]"#),
+        // C#
+        ("csharp",     #"^\s*using\s+System(\.\w+)*\s*;"#),
+        ("csharp",     #"\bnamespace\s+\w+(\.\w+)*\s*[\{;]"#),
+        ("csharp",     #"\bConsole\.(WriteLine|Write|ReadLine)\s*\("#),
+        // R
+        ("r",          #"<-\s*function\s*\("#),
+        ("r",          #"\bdata\.frame\s*\("#),
+        ("r",          #"\bggplot\s*\("#),
+        ("r",          #"%>%"#),
+        // Dart / Flutter
+        ("dart",       #"^\s*import\s+'package:flutter/"#),
+        ("dart",       #"^\s*import\s+'dart:"#),
+        ("dart",       #"\bWidget\s+build\s*\(\s*BuildContext\s+\w+\s*\)"#),
+        ("dart",       #"\b(StatelessWidget|StatefulWidget|MaterialApp)\b"#),
+        // Scala
+        ("scala",      #"^\s*import\s+scala\."#),
+        ("scala",      #"\b(case\s+class|sealed\s+trait)\s+\w+"#),
+        // Lua — function-with-body, require with quoted string
+        ("lua",        #"\bfunction\s+\w+(\.\w+|:\w+)?\s*\([^)]*\)"#),
+        ("lua",        #"\brequire\s*\(?\s*['\"][\w.]+['\"]"#),
+        // Perl
+        ("perl",       #"^\s*use\s+strict\s*;"#),
+        ("perl",       #"^\s*use\s+warnings\s*;"#),
+        ("perl",       #"\$\w+\s*=~\s*[ms]?/"#),
+        // Haskell
+        ("haskell",    #"^\s*module\s+\w+(\.\w+)*\s+where"#),
+        ("haskell",    #"^\s*import\s+(qualified\s+)?[A-Z]\w*(\.\w+)*"#),
+        ("haskell",    #"::\s*(IO|Maybe|Either|\[a\])\b"#),
+        // Elixir
+        ("elixir",     #"^\s*defmodule\s+\w+(\.\w+)*\s+do\b"#),
+        ("elixir",     #"^\s*def\s+\w+(\([^)]*\))?\s+do\b"#),
+        ("elixir",     #"\b(IO\.puts|IO\.inspect)\s*\("#),
+        // Erlang
+        ("erlang",     #"^-module\s*\(\s*\w+\s*\)\s*\."#),
+        ("erlang",     #"^-export\s*\(\s*\["#),
+        ("erlang",     #"\bspawn\s*\(\s*fun\b"#),
+        // Clojure
+        ("clojure",    #"^\s*\(\s*ns\s+[\w.\-]+"#),
+        ("clojure",    #"\(\s*defn?\s+\w+"#),
+        ("clojure",    #"\(\s*println\s+"#),
+        // F#
+        ("fsharp",     #"\bprintfn\s+"#),
+        ("fsharp",     #"^\s*open\s+System(\.\w+)*\s*$"#),
+        // Zig — strong: @import("std"), pub fn, fn main()!void {
+        ("zig",        #"\bconst\s+std\s*=\s*@import\s*\(\s*['\"]std['\"]\s*\)"#),
+        ("zig",        #"\bpub\s+fn\s+\w+\s*\("#),
+        ("zig",        #"\bfn\s+main\s*\(\s*\)\s+!?void\s*\{"#),
+        ("zig",        #"@(import|cImport|TypeOf|ptrCast|sizeOf|panic)\s*\("#),
+        // Mojo
+        ("mojo",       #"^\s*fn\s+\w+\s*\([^)]*\)(\s*->\s*\w+)?\s*(raises\s+)?:"#),
+        ("mojo",       #"^\s*struct\s+\w+\s*:"#),
+        // Julia
+        ("julia",      #"^\s*using\s+\w+(\s*,\s*\w+)*\s*$"#),
+        ("julia",      #"::Vector\{|::Array\{|::Float64|::Int64"#),
+        // OCaml
+        ("ocaml",      #"^\s*let\s+rec\s+\w+\s+\w+(\s+\w+)*\s+="#),
+        ("ocaml",      #"\bPrintf\.printf\s+"#),
+        // V
+        ("v",          #"^\s*fn\s+main\s*\(\s*\)\s*\{"#),
+        // Nim
+        ("nim",        #"^\s*proc\s+\w+\s*\([^)]*\)\s*:\s*\w+\s*=\s*$"#),
+        ("nim",        #"^\s*import\s+(strutils|sequtils|tables|os|std/)"#),
+        // Gleam
+        ("gleam",      #"^\s*pub\s+fn\s+\w+\s*\("#),
+        ("gleam",      #"^\s*import\s+gleam/"#),
+        // Shell
+        ("shell",      #"^#!/bin/(bash|sh|zsh|dash)"#),
+        ("shell",      #"^#!/usr/bin/env\s+(bash|sh|zsh)"#),
+        // SQL — tightened: require structural shape, not bare keyword
+        ("sql",        #"\b(SELECT\s+[\w*,\s]+\s+FROM\s+\w+|INSERT\s+INTO\s+\w+|UPDATE\s+\w+\s+SET|DELETE\s+FROM\s+\w+|CREATE\s+TABLE\s+\w+|ALTER\s+TABLE\s+\w+|DROP\s+TABLE\s+\w+)\b"#),
+        // HTML
+        ("html",       #"<!DOCTYPE\s+html"#),
+        ("html",       #"<html[\s>]"#),
+        ("html",       #"</?(div|span|p|table|body|head|meta|script|style|h[1-6]|ul|ol|li|img|input|form|button|nav|header|footer|section|article|main|aside)[\s/>]"#),
+        // CSS
+        ("css",        #"^@(media|import|keyframes|font-face|supports|charset)\b"#),
+        ("css",        #"\b(color|background-color|margin|padding|font-size|display|position|width|height|border)\s*:\s*[#\d\w'-]"#),
+        // JSON (structural)
+        ("json",       #"^\s*\{\s*\n[\s\S]*\"[^\"]+\"\s*:"#),
+        ("json",       #"^\s*\[\s*\n[\s\S]*\{"#),
+    ]
+
+    /// Weak anchors — bare keywords that overlap with English. Need ≥ 2
+    /// distinct weak anchors of the same language to fire (the multi-hit
+    /// rule). A prose paragraph containing one such word does not tag.
+    private static let weakAnchorPatterns: [(String, String)] = [
+        // Swift control flow
+        ("swift",      #"\bguard\s+let\s+\w+\s*="#),
+        ("swift",      #"\bif\s+let\s+\w+\s*="#),
+        // Python additional anchors (the line-anchored ones above are strong)
+        ("python",     #"^\s*for\s+\w+(\s*,\s*\w+)*\s+in\s+\S.*:\s*$"#),
+        ("python",     #"^\s*(if|elif|while|with|try|except|finally|else)\b[^{]*:\s*$"#),
+        ("python",     #"^\s*import\s+[\w.]+(\s+as\s+\w+)?\s*$"#),
+        ("python",     #"\bf['\"][^'\"]*\{[^}]+\}[^'\"]*['\"]"#),
+        ("python",     #"\b(self|cls)\.\w+\s*[=(]"#),
+        // Python lambda — tightened: require non-trivial body
+        ("python",     #"\blambda\s+\w+\s*:\s*[\w(\[]"#),
+        // Rust
+        ("rust",       #"\bfn\s+\w+\s*(<[^>]+>)?\s*\([^)]*\)"#),
+        ("rust",       #"\blet\s+mut\s+\w+"#),
+        ("rust",       #"->\s+Result<"#),
+        // Java
+        ("java",       #"\b(public|private|protected)\s+(static\s+)?(final\s+)?(void|int|String|boolean|double|float|long|char|byte)\s+\w+\s*\("#),
+        ("java",       #"\bpublic\s+class\s+\w+\s*(extends\s+\w+\s*)?(implements\s+[\w,\s]+\s*)?\{"#),
+        // Kotlin
+        ("kotlin",     #"\bfun\s+\w+\s*\([^)]*\)\s*:"#),
+        // C++
+        ("cpp",        #"\btemplate\s*<\s*(typename|class)\s+"#),
+        // C — tightened: malloc/calloc/free with assignment context (free(time) in prose won't have that)
+        ("c",          #"\b(int|void|char|float|double)\s+\w+\s*\([^)]*\)\s*\{"#),
+        ("c",          #"\bprintf\s*\("#),
+        ("c",          #"\b\w+\s*=\s*(malloc|calloc|realloc)\s*\("#),
+        // Go
+        ("go",         #":=\s*"#),
+        // TypeScript — tightened: type X = with closing punctuation
+        ("typescript", #"\btype\s+\w+\s*=\s*[\w<\[(].*[;|]"#),
+        ("typescript", #"\(\s*[^)]*:\s*(string|number|boolean|void|any|unknown|never)\s*[,)]"#),
+        // JavaScript
+        ("javascript", #"\bfunction\s+\w+\s*\("#),
+        // PHP
+        ("php",        #"\$\w+\s*=\s*"#),
+        // C#
+        ("csharp",     #"\b(public|private|protected|internal)\s+(static\s+)?(async\s+)?(class|record|interface|struct|enum)\s+\w+"#),
+        ("csharp",     #"\bvar\s+\w+\s*=\s*new\s+\w+"#),
+        // R
+        ("r",          #"^\s*library\s*\(\s*\w+\s*\)"#),
+        // Dart
+        ("dart",       #"\bvoid\s+main\s*\(\s*\)\s*\{"#),
+        // Scala
+        ("scala",      #"^\s*package\s+\w+(\.\w+)*\s*$"#),
+        ("scala",      #"\bdef\s+\w+\s*\([^)]*\)\s*:\s*\w+\s*="#),
+        ("scala",      #"\b(object|trait)\s+\w+"#),
+        // Lua — bare local + multi-end
+        ("lua",        #"\blocal\s+\w+\s*="#),
+        ("lua",        #"\bend\s*$.*\n.*\bend\s*$"#),
+        // Perl
+        ("perl",       #"\bmy\s+\$\w+\s*="#),
+        ("perl",       #"\bsub\s+\w+\s*\{"#),
+        // Haskell
+        ("haskell",    #"^\w+\s*::\s+"#),
+        // Elixir
+        ("elixir",     #"\|>"#),
+        // F#
+        ("fsharp",     #"^\s*module\s+[\w.]+\s*$"#),
+        ("fsharp",     #"^\s*let\s+\w+\s+\w+(\s+\w+)*\s+="#),
+        // Zig — tightened: defer must be followed by code-shape
+        ("zig",        #"\b(comptime|errdefer|defer)\s+(\{|\w+\s*\(|\w+\.\w+)"#),
+        // Mojo
+        ("mojo",       #"^\s*from\s+\w+\s+import\s+.*\n.*\balias\s+"#),
+        // Julia
+        ("julia",      #"^\s*function\s+\w+\s*\([^)]*\)\s*$"#),
+        ("julia",      #"^\s*end\s*$.*\n.*function\s+\w+"#),
+        ("julia",      #"\bprintln\s*\("#),
+        // OCaml
+        ("ocaml",      #"^\s*open\s+[A-Z]\w*(\.\w+)*\s*$"#),
+        ("ocaml",      #"\bmatch\s+.+\s+with\s*\n\s*\|"#),
+        // V
+        ("v",          #"^\s*module\s+\w+\s*$"#),
+        ("v",          #"\bprintln\s*\(\s*['\"]"#),
+        // Nim
+        ("nim",        #"\becho\s+['\"]"#),
+    ]
+
 
     /// Bundle IDs for code editors / IDEs. When clipboard content
     /// originates from one of these apps, the user is almost certainly

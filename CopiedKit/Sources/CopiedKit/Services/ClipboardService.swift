@@ -954,10 +954,12 @@ public final class ClipboardService {
 
     // MARK: - Reclassify Existing Clippings
 
-    // Bump V5→V6 so the fix re-runs on every device — this re-applies the
-    // migration via an ephemeral context, clearing any state that the V5
-    // run left registered in the shared env context.
-    private static let reclassifyKey = "didReclassifyClippingsV6"
+    // Bump V6→V7 so existing rows mis-tagged by the over-aggressive 1.3.x
+    // anchor regexes (e.g. prose tagged as Zig/SQL/Python) re-run through
+    // the tightened categorizer (strong/weak split + NLTagger prose
+    // disqualifier). Reclassify uses an ephemeral ModelContext so the
+    // migration's working set drops cleanly when it returns.
+    private static let reclassifyKey = "didReclassifyClippingsV7"
 
     /// One-time migration: re-runs URL and categorization on existing
     /// clippings. V3 introduces UTI-based source-code detection, markdown
@@ -1074,17 +1076,32 @@ public final class ClipboardService {
         if let lang = CodeDetector.languageFromUTIs(types) {
             return (true, lang)
         }
-        // 2. High-confidence regex anchors.
-        if let text, let lang = CodeDetector.anchorLanguage(in: text) {
-            return (true, lang)
-        }
-        // 2.5 Structured config formats (YAML / JSON / TOML / Dockerfile / Makefile).
+        // 2. Structured config formats (YAML / JSON / TOML / Dockerfile /
+        // Makefile). Distinctive whole-document structural shape — runs
+        // BEFORE language anchors so a YAML with embedded shell blocks
+        // doesn't get tagged as shell on keyword heuristic fallback.
         if let text, let lang = CodeDetector.configLanguage(in: text) {
             return (true, lang)
         }
-        // 3. Markdown markers — beats HTML wrappers around markdown.
+        // 3. Markdown — heading + bullets + bold + code spans. Whole-
+        // document structural signal. MUST run BEFORE the language anchors
+        // so a markdown doc that mentions `function name()` doesn't get
+        // tagged as Lua on the function anchor. Markdown's score-based
+        // detector (≥ 3) only fires on real markdown shape.
         if let text, CodeDetector.looksLikeMarkdown(text) {
             return (true, "markdown")
+        }
+        // 4. Per-language anchor regex (strong patterns + weak with ≥ 2 hits).
+        if let text, let lang = CodeDetector.anchorLanguage(in: text) {
+            return (true, lang)
+        }
+        // 5. NLTagger prose disqualifier — by here we know it's not code
+        // (no UTI / no config / no markdown / no anchor). If it's
+        // overwhelmingly natural English (≥ 70% of words are nouns /
+        // verbs / etc.), it's plain text — don't fall through to the
+        // weaker heuristics that mis-fire on prose mentioning code.
+        if let text, CodeDetector.looksLikeProseNL(text) {
+            return (false, nil)
         }
         // 4. Real, structurally-rich HTML.
         if hasHTML,
