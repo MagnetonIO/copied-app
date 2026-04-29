@@ -936,13 +936,22 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         }
     }
 
+    /// Maximum records per outbound batch. Keeps memory bounded when the
+    /// pending queue is large (e.g. after a reclassification migration that
+    /// dirtied many records, or after a copy storm). CKSyncEngine will call
+    /// us again for the next slice when this batch completes.
+    private static let maxBatchRecords = 50
+
     public func nextRecordZoneChangeBatch(
         _ context: CKSyncEngine.SendChangesContext,
         syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
         let scope = context.options.scope
-        let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
-        guard !changes.isEmpty else { return nil }
+        let allChanges = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+        guard !allChanges.isEmpty else { return nil }
+        // Cap per-call batch size so we don't spike RSS by materializing
+        // every pending CKRecord (with its CKAsset blob references) at once.
+        let changes = Array(allChanges.prefix(Self.maxBatchRecords))
         let saveCount = changes.reduce(into: 0) { count, change in
             if case .saveRecord = change { count += 1 }
         }
