@@ -335,7 +335,7 @@ struct SettingsView: View {
 
     // MARK: - Appearance
 
-    @AppStorage("popoverItemCount") private var popoverItemCount = 50
+    @AppStorage("popoverItemCount") private var popoverItemCount = 100
 
     private var appearanceTab: some View {
         Form {

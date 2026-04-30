@@ -32,12 +32,25 @@ struct PopoverView: View {
     #endif
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
 
+    /// User-configurable cap from Settings → Appearance → "Items shown".
+    /// Default 100 matches the value registered in `CopiedMacApp.register`.
+    @AppStorage("popoverItemCount") private var popoverItemCount: Int = 100
+
     /// How many of the most recent clippings are currently materialized in the
-    /// popover. Starts at 100 and grows by 100 as the user scrolls near the
-    /// bottom, capped at `maxVisibleCount` so memory stays bounded.
+    /// popover. Re-initialized to `pageSize` on every popover open so the
+    /// cap follows the user's `popoverItemCount` setting.
     @State private var visibleCount: Int = 100
-    private let pageSize: Int = 100
-    private let maxVisibleCount: Int = 500
+    /// Page step + render ceiling, both driven by the user's "Items shown"
+    /// pick. With pageSize == renderCap the first page already fills the cap
+    /// and the scroll-grow path becomes a no-op — exactly the desired
+    /// behavior: the picker is the absolute ceiling for unpinned rows.
+    private var pageSize: Int { popoverItemCount }
+    private var renderCap: Int { popoverItemCount }
+    /// Search corpus floor — keep ≥500 so fuzzy search has substantive
+    /// history to look across even when the user picks "25". Render cap
+    /// (`renderCap`) bounds the visible row count; this only bounds the
+    /// in-memory dataset.
+    private var fetchCap: Int { max(500, popoverItemCount) }
 
     @State private var searchText = ""
     @State private var selectedIndex: Int = 0
@@ -51,7 +64,7 @@ struct PopoverView: View {
     /// works in all modes (recent list, search, filter) because the ForEach
     /// caps at `visibleCount` regardless of source.
     private var canLoadMore: Bool {
-        visibleCount < maxVisibleCount && visibleCount < filtered.count
+        visibleCount < renderCap && visibleCount < filtered.count
     }
 
     /// Search input trails `searchText` by 200 ms so fuzzy scoring on
@@ -126,7 +139,7 @@ struct PopoverView: View {
             predicate: #Predicate<Clipping> { $0.deleteDate == nil && $0.isPinned == false }
         )
         recent.sortBy = [SortDescriptor(\Clipping.addDate, order: .reverse)]
-        recent.fetchLimit = maxVisibleCount
+        recent.fetchLimit = fetchCap
 
         let pinnedRows = (try? ctx.fetch(pinned)) ?? []
         let recentRows = (try? ctx.fetch(recent)) ?? []
@@ -353,6 +366,12 @@ struct PopoverView: View {
             // Force-bypass the 100 ms coalesce — local edits (favorite,
             // pin, edit text) must reflect immediately, not be debounced.
             refreshFreshClippings(force: true)
+        }
+        .onChange(of: popoverItemCount) { _, newValue in
+            // User changed the cap in Settings while the popover is open
+            // (rare but possible). Clamp the rendered window so the new
+            // ceiling takes effect without waiting for a reopen.
+            visibleCount = min(visibleCount, newValue)
         }
         // Drop in-memory caches when the popover loses key window status
         // (popover dismissed). scenePhase inactive doesn't fire reliably for
@@ -706,7 +725,7 @@ struct PopoverView: View {
                                     // Grow the rendered prefix when the user
                                     // scrolls within 10 rows of the current cap.
                                     if canLoadMore, index >= visibleCount - 10 {
-                                        visibleCount = min(visibleCount + pageSize, maxVisibleCount)
+                                        visibleCount = min(visibleCount + pageSize, renderCap)
                                     }
                                     // Queue the next few thumbnails for a
                                     // batched prefetch ~100 ms after the last
@@ -1093,7 +1112,7 @@ struct PopoverView: View {
             // Live clippings count — informational, mirrors the iOS root's
             // "Copied (N)" treatment so users have a single glance metric
             // for "how full is my history?" without opening Settings.
-            Text("\(activeClippings.count) clippings")
+            Text("\(activeClippings.count) saved")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
