@@ -23,6 +23,13 @@ struct PopoverClippingCard: View {
     /// and uses this clipping as the auto-assign target once the user names the list.
     var onRequestNewList: ((Clipping) -> Void)? = nil
 
+    /// Apply a list assignment (or clear, when `nil`) for this row's clipping.
+    /// Routed through the parent because `freshAllClippings` Clippings live in
+    /// a fresh ephemeral ModelContext per refresh — assigning a `ClipList`
+    /// (which lives in mainContext) directly onto them crashes SwiftData.
+    /// PopoverView re-fetches the clipping in mainContext before writing.
+    var onAssignList: ((String, ClipList?) -> Void)? = nil
+
     /// Bumped after a list assignment / clear so the parent can refresh its
     /// `freshAllClippings` snapshot — otherwise the row would appear unchanged
     /// until the next sync tick.
@@ -52,20 +59,35 @@ struct PopoverClippingCard: View {
             contentTypeIcon
                 .frame(width: 16)
 
+            // Pin indicator — orange `pin.fill` shown only when pinned, so a
+            // pinned row is recognisable at a glance even before reading
+            // its content. Mirrors the main-window `ClippingRow` treatment.
+            if clipping.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .rotationEffect(.degrees(45))
+                    .accessibilityLabel("Pinned")
+            }
+
             // Content preview
             contentPreview
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Timestamp / quick actions
+            // Timestamp / quick actions. The favorite ★ inside `quickActions`
+            // owns its own opacity so it stays visible whenever the row is
+            // favorited (even when not hovered) — without that, a starred
+            // row's yellow indicator vanishes the moment the cursor leaves.
+            // The timestamp hides whenever ★ would be drawn so they don't
+            // overlap inside the 76-pt trailing slot.
             ZStack(alignment: .trailing) {
                 Text(clipping.addDate.relativeLabel)
                     .font(.caption)
                     .foregroundStyle(.quaternary)
                     .lineLimit(1)
-                    .opacity(showsQuickActions ? 0 : 1)
+                    .opacity((showsQuickActions || clipping.isFavorite) ? 0 : 1)
 
                 quickActions
-                    .opacity(showsQuickActions ? 1 : 0)
             }
             .frame(width: 76, alignment: .trailing)
         }
@@ -145,8 +167,12 @@ struct PopoverClippingCard: View {
     // Search state for match highlighting
     var searchMatchRanges: [Range<String.Index>]?
 
+    /// Mirrors `showsHighlight`'s mode-aware rule. The OR-form (`isHovered ||
+    /// isSelected`) leaked the stale keyboard cursor's `isSelected` into the
+    /// trailing icons in mouse mode — the top row appeared to "always" show
+    /// ★/➕/🗑 because `selectedIndex` defaults to 0 on popover open.
     private var showsQuickActions: Bool {
-        isHovered || isSelected
+        isKeyboardNavigating ? isSelected : isHovered
     }
 
     /// Single-highlight rule for the row background.
@@ -321,6 +347,9 @@ struct PopoverClippingCard: View {
 
     private var quickActions: some View {
         HStack(spacing: 6) {
+            // Favorite ★ stays visible whenever the row is favorited so the
+            // yellow indicator is glanceable across the whole list — not just
+            // on the hovered/selected row. ➕ and 🗑 stay hover/select-gated.
             Button {
                 clipping.isFavorite.toggle()
                 clipping.persist()
@@ -332,10 +361,12 @@ struct PopoverClippingCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .opacity(clipping.isFavorite || showsQuickActions ? 1 : 0)
 
             // Menu (not a sheet) because sheets dismiss the MenuBarExtra popover
             // by losing key window status (per COP-98 discovery).
             addToListMenu
+                .opacity(showsQuickActions ? 1 : 0)
 
             Button {
                 clipping.moveToTrash()
@@ -347,6 +378,7 @@ struct PopoverClippingCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .opacity(showsQuickActions ? 1 : 0)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.8)))
     }
@@ -362,9 +394,10 @@ struct PopoverClippingCard: View {
                 Divider()
                 ForEach(availableLists) { list in
                     Button {
-                        clipping.list = list
-                        clipping.persist()
-                        onLocalMutation?()
+                        // Route through the parent — re-fetches the clipping
+                        // in mainContext before the relationship write to
+                        // avoid a cross-context SwiftData crash.
+                        onAssignList?(clipping.clippingID, list)
                     } label: {
                         HStack {
                             Text(list.name)
@@ -378,9 +411,7 @@ struct PopoverClippingCard: View {
             if clipping.list != nil {
                 Divider()
                 Button(role: .destructive) {
-                    clipping.list = nil
-                    clipping.persist()
-                    onLocalMutation?()
+                    onAssignList?(clipping.clippingID, nil)
                 } label: {
                     Label("Remove from List", systemImage: "folder.badge.minus")
                 }

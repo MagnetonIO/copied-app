@@ -19,6 +19,12 @@ struct PopoverView: View {
     /// Sidebar-style list roster for the popover filter menu.
     @Query(sort: \ClipList.sortOrder) private var userLists: [ClipList]
 
+    /// Live count of active (non-trashed) clippings, surfaced in the status
+    /// bar. SwiftData `@Query` re-evaluates the predicate on changes so the
+    /// number updates the moment the user copies / trashes / restores.
+    @Query(filter: #Predicate<Clipping> { $0.deleteDate == nil })
+    private var activeClippings: [Clipping]
+
     @AppStorage("pasteAndClose") private var pasteAndClose = true
 
     #if MAS_BUILD
@@ -68,6 +74,7 @@ struct PopoverView: View {
     /// (same pattern as `MainWindowView`) anchored on the popover root.
     @State private var isNamingNewListFromPopover = false
     @State private var newListNameDraft = ""
+    @FocusState private var newListNameFieldFocused: Bool
     /// When non-nil, the in-flight "+ New List…" alert was raised from the
     /// per-row picker (COP-99). On Create, the freshly-made list is also
     /// assigned to this clipping so the user gets create-and-assign in one
@@ -104,15 +111,26 @@ struct PopoverView: View {
         if !force, Date().timeIntervalSince(lastRefreshAt) < 0.1 { return }
         lastRefreshAt = Date()
 
-        var descriptor = FetchDescriptor<Clipping>(
-            predicate: #Predicate<Clipping> { $0.deleteDate == nil }
-        )
-        descriptor.sortBy = [SortDescriptor(\Clipping.addDate, order: .reverse)]
-        // Popover renders at most maxVisibleCount rows; fetching all is
-        // wasted work that scaled linearly with history size.
-        descriptor.fetchLimit = maxVisibleCount
+        // Two-fetch pin-aware strategy: pinned clippings are guaranteed
+        // visible regardless of age (otherwise an old pinned reference
+        // snippet silently disappears once 500 newer items pile up), while
+        // unpinned items still respect the recent-window cap so memory
+        // stays bounded.
         let ctx = ModelContext(SharedData.container)
-        freshAllClippings = (try? ctx.fetch(descriptor)) ?? []
+        var pinned = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.deleteDate == nil && $0.isPinned == true }
+        )
+        pinned.sortBy = [SortDescriptor(\Clipping.addDate, order: .reverse)]
+
+        var recent = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.deleteDate == nil && $0.isPinned == false }
+        )
+        recent.sortBy = [SortDescriptor(\Clipping.addDate, order: .reverse)]
+        recent.fetchLimit = maxVisibleCount
+
+        let pinnedRows = (try? ctx.fetch(pinned)) ?? []
+        let recentRows = (try? ctx.fetch(recent)) ?? []
+        freshAllClippings = pinnedRows + recentRows
     }
 
     /// Queue a prefetch around `index` for a batched pass ~100 ms later.
@@ -346,38 +364,108 @@ struct PopoverView: View {
         // changes (every mutation is saved immediately), so rollback is
         // safe and re-faults only what the next @Query touches.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            // Skip the purge while a transient in-popover overlay is active
+            // (naming a new list, image preview). Those overlays steal key
+            // status from the popover's NSWindow but the user is not done
+            // with the popover — rolling back mainContext mid-flow would
+            // strand any object references the overlay's Save closure
+            // captured (the previous bug: Create-button → crash).
+            guard !isNamingNewListFromPopover, previewClipID == nil else { return }
             ThumbnailCache.shared.purge()
             AppIconCache.shared.purge()
             SharedData.container.mainContext.rollback()
         }
-        .alert("New List", isPresented: $isNamingNewListFromPopover) {
-            TextField("List name", text: $newListNameDraft)
-            Button("Create") {
-                if let list = ClipboardService.createList(named: newListNameDraft, in: modelContext) {
-                    if let target = pendingClippingForListAssignment {
-                        // Per-row picker path (COP-99): assign the new list
-                        // to the originating clipping. Don't change the
-                        // popover filter — the user is mid-assign, switching
-                        // the visible filter would be disorienting.
-                        target.list = list
-                        target.persist()
-                    } else {
-                        // Header listFilterMenu path (COP-98): focus the
-                        // filter onto the freshly-created list so the user
-                        // sees an empty view ready to receive assignments.
-                        appState.popoverListFilterID = list.listID
+        .overlay { nameNewListOverlay }
+    }
+
+    // MARK: - Name New List Overlay
+    //
+    // Replaces an earlier `.alert("New List", isPresented: ...)` modifier.
+    // SwiftUI alerts on a MenuBarExtra window don't reliably hand keyboard
+    // focus to an inline TextField AND opening the alert resigns the
+    // popover's key status, which used to fire `mainContext.rollback()`
+    // mid-flow and strand the Clipping the user was assigning. An in-popover
+    // overlay sidesteps both: same NSWindow → no didResignKey → no rollback
+    // collision, and `@FocusState` works normally.
+
+    @ViewBuilder
+    private var nameNewListOverlay: some View {
+        if isNamingNewListFromPopover {
+            ZStack {
+                Color.black.opacity(0.55)
+                    .ignoresSafeArea()
+                    .onTapGesture { cancelNewListNaming() }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("New List").font(.headline)
+                    Text("Give your list a name — you can rename it later from the main window.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    TextField("List name", text: $newListNameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($newListNameFieldFocused)
+                        .onSubmit { confirmNewListNaming() }
+                    HStack {
+                        Spacer()
+                        Button("Cancel", role: .cancel) { cancelNewListNaming() }
+                        Button("Create") { confirmNewListNaming() }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                    bumpLocalMutationTick()
                 }
-                pendingClippingForListAssignment = nil
+                .padding(20)
+                .frame(width: 320)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .shadow(radius: 16)
             }
-            .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Cancel", role: .cancel) {
-                pendingClippingForListAssignment = nil
-            }
-        } message: {
-            Text("Give your list a name — you can rename it later from the main window.")
+            .task { newListNameFieldFocused = true }
         }
+    }
+
+    private func cancelNewListNaming() {
+        isNamingNewListFromPopover = false
+        pendingClippingForListAssignment = nil
+        newListNameDraft = ""
+    }
+
+    private func confirmNewListNaming() {
+        let trimmed = newListNameDraft.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        if let list = ClipboardService.createList(named: trimmed, in: modelContext) {
+            if let target = pendingClippingForListAssignment {
+                // Per-row picker path: the target Clipping comes from
+                // `freshAllClippings`, which is loaded through a fresh
+                // ephemeral ModelContext on every refresh. Assigning a
+                // relationship across contexts crashes SwiftData, so
+                // re-fetch the target in `modelContext` (the popover's
+                // mainContext, same context the list was just inserted
+                // into) before setting `target.list`.
+                assignList(clippingID: target.clippingID, to: list)
+            } else {
+                // Header listFilterMenu path: focus the popover filter onto
+                // the freshly-created list so the user sees an empty view
+                // ready to receive assignments.
+                appState.popoverListFilterID = list.listID
+                bumpLocalMutationTick()
+            }
+        }
+        cancelNewListNaming()
+    }
+
+    /// Re-fetch the clipping by ID in `modelContext` (mainContext) and write
+    /// the relationship there. Required because `freshAllClippings` lives in
+    /// a fresh ephemeral context — assigning a `ClipList` (mainContext) onto
+    /// one of those clippings crosses contexts and crashes.
+    @MainActor
+    private func assignList(clippingID: String, to list: ClipList?) {
+        var descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.clippingID == clippingID }
+        )
+        descriptor.fetchLimit = 1
+        guard let resolved = try? modelContext.fetch(descriptor).first else { return }
+        resolved.list = list
+        resolved.persist()
+        bumpLocalMutationTick()
     }
 
     // MARK: - Search Bar
@@ -607,6 +695,9 @@ struct PopoverView: View {
                                         pendingClippingForListAssignment = target
                                         newListNameDraft = ""
                                         isNamingNewListFromPopover = true
+                                    },
+                                    onAssignList: { clippingID, list in
+                                        assignList(clippingID: clippingID, to: list)
                                     },
                                     onLocalMutation: { bumpLocalMutationTick() },
                                     searchMatchRanges: matchRanges[clipping.clippingID]
@@ -998,6 +1089,15 @@ struct PopoverView: View {
             syncStatusView
 
             Spacer()
+
+            // Live clippings count — informational, mirrors the iOS root's
+            // "Copied (N)" treatment so users have a single glance metric
+            // for "how full is my history?" without opening Settings.
+            Text("\(activeClippings.count) clippings")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
 
             Text(GlobalHotkeyManager.shared.shortcutDescription)
                 .font(.caption2.monospaced())

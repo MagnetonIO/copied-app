@@ -356,7 +356,12 @@ private struct QueryList: View {
                 clip.url?.localizedCaseInsensitiveContains(searchText) == true
             }
         }
-        return searched.sorted(by: sortOrder.comparator)
+        // Pinned items always render first, regardless of the user's chosen
+        // sort order — pin = "always show me this," which trumps any sort.
+        let sorted = searched.sorted(by: sortOrder.comparator)
+        let pinned = sorted.filter { $0.isPinned }
+        let unpinned = sorted.filter { !$0.isPinned }
+        return pinned + unpinned
     }
 
     private var isOverLimit: Bool { clippings.count >= historyCap }
@@ -484,7 +489,11 @@ private struct QueryList: View {
                             if clip.deleteDate == nil {
                                 Button {
                                     clip.isFavorite.toggle()
-                                    try? clip.modelContext?.save()
+                                    // persist() saves AND enqueues the
+                                    // CKSyncEngine change so the toggle
+                                    // syncs to peers — a bare save() to
+                                    // modelContext only commits locally.
+                                    clip.persist()
                                 } label: {
                                     Label(
                                         clip.isFavorite ? "Unfavorite" : "Favorite",
@@ -646,11 +655,10 @@ private struct QueryList: View {
     }
 
     private func createNewList(named rawName: String) {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let list = ClipList(name: name)
-        modelContext.insert(list)
-        try? modelContext.save()
+        // Route through the shared helper so the new ClipList enqueues a
+        // CKSyncEngine change — same fix as ListsScreen.addNewList. A bare
+        // modelContext.save() commits locally but never reaches the Mac.
+        _ = ClipboardService.createList(named: rawName, in: modelContext)
     }
 
     @ViewBuilder

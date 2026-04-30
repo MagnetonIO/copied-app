@@ -45,6 +45,11 @@ struct MainWindowView: View {
     @State private var renamingList: ClipList?
     @State private var pendingDeleteList: ClipList?
     @State private var hoveringListsHeader = false
+    /// Set when the user picks "+ New List…" from a row context menu's
+    /// "Add to List" submenu — the alert's Create button reads this to
+    /// auto-assign the new list to the originating clipping. Cleared on
+    /// cancel + after a successful assign.
+    @State private var pendingClippingForListAssignment: Clipping?
 
     var body: some View {
         let _ = syncTicker.tick
@@ -56,7 +61,8 @@ struct MainWindowView: View {
             ClippingListBySelection(
                 selection: appState.sidebarSelection,
                 searchText: searchText,
-                selectedClippings: $selectedClippings
+                selectedClippings: $selectedClippings,
+                onRequestNewList: requestNewListForAssignment
             )
             .onChange(of: appState.sidebarSelection) { _, _ in
                 selectedClippings.removeAll()
@@ -204,7 +210,9 @@ struct MainWindowView: View {
             TextField("List name", text: $newListNameDraft)
             Button("Create") { createList(named: newListNameDraft) }
                 .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                pendingClippingForListAssignment = nil
+            }
         } message: {
             Text("Give your list a name — you can rename it later.")
         }
@@ -309,27 +317,77 @@ struct MainWindowView: View {
     }
 
     private func createList(named rawName: String) {
-        _ = ClipboardService.createList(named: rawName, in: modelContext)
+        guard let list = ClipboardService.createList(named: rawName, in: modelContext) else { return }
+        // If a row context-menu queued a clipping for assignment (Fix 4),
+        // auto-assign it to the freshly-created list and clear the queue.
+        if let target = pendingClippingForListAssignment {
+            target.list = list
+            target.persist()
+            pendingClippingForListAssignment = nil
+        }
+    }
+
+    /// Closure handed to each child list view's `clippingContextMenuContent`
+    /// so the per-row "+ New List…" path can trigger this view's existing
+    /// naming alert with the originating clipping queued for assignment.
+    private var requestNewListForAssignment: (Clipping) -> Void {
+        { clipping in
+            pendingClippingForListAssignment = clipping
+            newListNameDraft = ""
+            isNamingNewList = true
+        }
     }
 }
 
 // MARK: - Clipping List filtered by sidebar selection
 
+/// Pinned items always sort to the top of any clippings list — popover, main
+/// window, iOS — so a user-pinned reference snippet is one click away
+/// regardless of its `addDate` rank.
+private extension Array where Element == Clipping {
+    var pinnedFirst: [Clipping] {
+        let pinned = self.filter { $0.isPinned }
+        let unpinned = self.filter { !$0.isPinned }
+        return pinned + unpinned
+    }
+}
+
 struct ClippingListBySelection: View {
     let selection: SidebarItem
     let searchText: String
     @Binding var selectedClippings: Set<Clipping>
+    /// Forwarded into each child's `clippingContextMenuContent` so the
+    /// per-row "Add to List → + New List…" path can trigger the parent
+    /// MainWindowView's naming alert with this clipping queued.
+    let onRequestNewList: (Clipping) -> Void
 
     var body: some View {
         switch selection {
         case .all:
-            AllClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
+            AllClippingsList(
+                searchText: searchText,
+                selectedClippings: $selectedClippings,
+                onRequestNewList: onRequestNewList
+            )
         case .favorites:
-            FavoritesClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
+            FavoritesClippingsList(
+                searchText: searchText,
+                selectedClippings: $selectedClippings,
+                onRequestNewList: onRequestNewList
+            )
         case .trash:
-            TrashClippingsList(searchText: searchText, selectedClippings: $selectedClippings)
+            TrashClippingsList(
+                searchText: searchText,
+                selectedClippings: $selectedClippings,
+                onRequestNewList: onRequestNewList
+            )
         case .list(let list):
-            ListClippingsList(list: list, searchText: searchText, selectedClippings: $selectedClippings)
+            ListClippingsList(
+                list: list,
+                searchText: searchText,
+                selectedClippings: $selectedClippings,
+                onRequestNewList: onRequestNewList
+            )
         }
     }
 }
@@ -339,6 +397,7 @@ struct ClippingListBySelection: View {
 private struct AllClippingsList: View {
     let searchText: String
     @Binding var selectedClippings: Set<Clipping>
+    let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -349,6 +408,8 @@ private struct AllClippingsList: View {
     )
     private var allClippings: [Clipping]
 
+    @Query(sort: \ClipList.sortOrder) private var availableLists: [ClipList]
+
     // Limit to 200 items to prevent materializing thousands of model objects
     private var clippings: ArraySlice<Clipping> { allClippings.prefix(200) }
 
@@ -357,11 +418,12 @@ private struct AllClippingsList: View {
     }
 
     private func clippingList(_ items: [Clipping], emptyTitle: String, emptyIcon: String) -> some View {
-        let filtered = searchText.isEmpty ? items : items.filter {
+        let searched = searchText.isEmpty ? items : items.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.title?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.url?.localizedCaseInsensitiveContains(searchText) == true
         }
+        let filtered = searched.pinnedFirst
         return List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
@@ -370,7 +432,9 @@ private struct AllClippingsList: View {
                         for: clipping,
                         clipboardService: clipboardService,
                         modelContext: modelContext,
-                        inTrash: false
+                        inTrash: false,
+                        availableLists: availableLists,
+                        onRequestNewList: onRequestNewList
                     )
                     multiSelectMenuContent(
                         clickedRow: clipping,
@@ -402,6 +466,7 @@ private struct AllClippingsList: View {
 private struct FavoritesClippingsList: View {
     let searchText: String
     @Binding var selectedClippings: Set<Clipping>
+    let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -412,11 +477,14 @@ private struct FavoritesClippingsList: View {
     )
     private var clippings: [Clipping]
 
+    @Query(sort: \ClipList.sortOrder) private var availableLists: [ClipList]
+
     var body: some View {
-        let filtered = searchText.isEmpty ? clippings : clippings.filter {
+        let searched = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.title?.localizedCaseInsensitiveContains(searchText) == true
         }
+        let filtered = searched.pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
@@ -425,7 +493,9 @@ private struct FavoritesClippingsList: View {
                         for: clipping,
                         clipboardService: clipboardService,
                         modelContext: modelContext,
-                        inTrash: false
+                        inTrash: false,
+                        availableLists: availableLists,
+                        onRequestNewList: onRequestNewList
                     )
                     multiSelectMenuContent(
                         clickedRow: clipping,
@@ -458,6 +528,7 @@ private struct FavoritesClippingsList: View {
 private struct TrashClippingsList: View {
     let searchText: String
     @Binding var selectedClippings: Set<Clipping>
+    let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
@@ -468,10 +539,13 @@ private struct TrashClippingsList: View {
     )
     private var clippings: [Clipping]
 
+    @Query(sort: \ClipList.sortOrder) private var availableLists: [ClipList]
+
     var body: some View {
-        let filtered = searchText.isEmpty ? clippings : clippings.filter {
+        let searched = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
+        let filtered = searched.pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             HStack {
                 ClippingRow(clipping: clipping)
@@ -488,7 +562,9 @@ private struct TrashClippingsList: View {
                     for: clipping,
                     clipboardService: clipboardService,
                     modelContext: modelContext,
-                    inTrash: true
+                    inTrash: true,
+                    availableLists: availableLists,
+                    onRequestNewList: onRequestNewList
                 )
                 multiSelectMenuContent(
                     clickedRow: clipping,
@@ -529,15 +605,23 @@ private struct ListClippingsList: View {
     let list: ClipList
     let searchText: String
     @Binding var selectedClippings: Set<Clipping>
+    let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(ClipboardService.self) private var clipboardService
 
     @Query private var clippings: [Clipping]
+    @Query(sort: \ClipList.sortOrder) private var availableLists: [ClipList]
 
-    init(list: ClipList, searchText: String, selectedClippings: Binding<Set<Clipping>>) {
+    init(
+        list: ClipList,
+        searchText: String,
+        selectedClippings: Binding<Set<Clipping>>,
+        onRequestNewList: @escaping (Clipping) -> Void
+    ) {
         self.list = list
         self.searchText = searchText
         self._selectedClippings = selectedClippings
+        self.onRequestNewList = onRequestNewList
 
         let listID = list.listID
         _clippings = Query(
@@ -549,9 +633,10 @@ private struct ListClippingsList: View {
     }
 
     var body: some View {
-        let filtered = searchText.isEmpty ? clippings : clippings.filter {
+        let searched = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
+        let filtered = searched.pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
                 .tag(clipping)
@@ -560,7 +645,9 @@ private struct ListClippingsList: View {
                         for: clipping,
                         clipboardService: clipboardService,
                         modelContext: modelContext,
-                        inTrash: false
+                        inTrash: false,
+                        availableLists: availableLists,
+                        onRequestNewList: onRequestNewList
                     )
                     multiSelectMenuContent(
                         clickedRow: clipping,
@@ -636,7 +723,9 @@ private func clippingContextMenuContent(
     for clipping: Clipping,
     clipboardService: ClipboardService,
     modelContext: ModelContext,
-    inTrash: Bool
+    inTrash: Bool,
+    availableLists: [ClipList],
+    onRequestNewList: @escaping (Clipping) -> Void
 ) -> some View {
     Button("Copy") {
         copyClippingToPasteboard(clipping, clipboardService: clipboardService)
@@ -692,6 +781,43 @@ private func clippingContextMenuContent(
     Button(clipping.isPinned ? "Unpin" : "Pin") {
         clipping.isPinned.toggle()
         clipping.persist()
+    }
+    // Parity with the popover row's COP-99 list-picker icon. Trash rows
+    // skip the submenu — assigning a trashed clipping to a list would
+    // lift it out of trash silently, surprising the user.
+    if !inTrash {
+        Menu("Add to List") {
+            Button {
+                onRequestNewList(clipping)
+            } label: {
+                Label("New List…", systemImage: "folder.badge.plus")
+            }
+            if !availableLists.isEmpty {
+                Divider()
+                ForEach(availableLists) { list in
+                    Button {
+                        clipping.list = list
+                        clipping.persist()
+                    } label: {
+                        HStack {
+                            Text(list.name)
+                            if clipping.list?.listID == list.listID {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+            if clipping.list != nil {
+                Divider()
+                Button(role: .destructive) {
+                    clipping.list = nil
+                    clipping.persist()
+                } label: {
+                    Label("Remove from List", systemImage: "folder.badge.minus")
+                }
+            }
+        }
     }
     Divider()
     if inTrash {

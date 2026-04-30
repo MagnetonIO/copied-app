@@ -178,11 +178,11 @@ struct ListsScreen: View {
     @AppStorage("trashRetentionDays") private var trashRetentionDays: Int = 30
 
     private func addNewList(named rawName: String) {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let list = ClipList(name: name)
-        modelContext.insert(list)
-        try? modelContext.save()
+        // Route through the shared helper so the new ClipList enqueues a
+        // CKSyncEngine change. A bare modelContext.save() commits locally
+        // but never pushes the record, so iOS-created lists never reached
+        // the Mac (or other iOS devices) until something else flushed.
+        _ = ClipboardService.createList(named: rawName, in: modelContext)
     }
 }
 
