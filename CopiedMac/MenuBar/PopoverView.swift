@@ -68,6 +68,11 @@ struct PopoverView: View {
     /// (same pattern as `MainWindowView`) anchored on the popover root.
     @State private var isNamingNewListFromPopover = false
     @State private var newListNameDraft = ""
+    /// When non-nil, the in-flight "+ New List…" alert was raised from the
+    /// per-row picker (COP-99). On Create, the freshly-made list is also
+    /// assigned to this clipping so the user gets create-and-assign in one
+    /// gesture. nil means the alert came from the header `listFilterMenu`.
+    @State private var pendingClippingForListAssignment: Clipping?
     /// Coalesce duplicate `refreshFreshClippings()` triggers — `.onAppear`,
     /// scenePhase, and `localClippingsRevision` can fire within ~50 ms of
     /// each other on popover reopen. Skip refresh if one ran recently
@@ -349,15 +354,27 @@ struct PopoverView: View {
             TextField("List name", text: $newListNameDraft)
             Button("Create") {
                 if let list = ClipboardService.createList(named: newListNameDraft, in: modelContext) {
-                    // Auto-focus the popover filter onto the freshly-created
-                    // list so the user immediately sees an empty filtered
-                    // view ready to receive assignments (COP-99 wiring).
-                    appState.popoverListFilterID = list.listID
+                    if let target = pendingClippingForListAssignment {
+                        // Per-row picker path (COP-99): assign the new list
+                        // to the originating clipping. Don't change the
+                        // popover filter — the user is mid-assign, switching
+                        // the visible filter would be disorienting.
+                        target.list = list
+                        target.persist()
+                    } else {
+                        // Header listFilterMenu path (COP-98): focus the
+                        // filter onto the freshly-created list so the user
+                        // sees an empty view ready to receive assignments.
+                        appState.popoverListFilterID = list.listID
+                    }
                     bumpLocalMutationTick()
                 }
+                pendingClippingForListAssignment = nil
             }
             .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                pendingClippingForListAssignment = nil
+            }
         } message: {
             Text("Give your list a name — you can rename it later from the main window.")
         }
@@ -585,6 +602,13 @@ struct PopoverView: View {
                                     onMouseMoved: {
                                         if isKeyboardNavigating { isKeyboardNavigating = false }
                                     },
+                                    availableLists: userLists,
+                                    onRequestNewList: { target in
+                                        pendingClippingForListAssignment = target
+                                        newListNameDraft = ""
+                                        isNamingNewListFromPopover = true
+                                    },
+                                    onLocalMutation: { bumpLocalMutationTick() },
                                     searchMatchRanges: matchRanges[clipping.clippingID]
                                 )
                                 .onAppear {
