@@ -67,6 +67,7 @@ struct ClippingsListScreen: View {
         switch selection {
         case .copied: return "copied"
         case .clipboard: return "clipboard"
+        case .favorites: return "favorites"
         case .trash: return "trash"
         case .userList(let id): return "user.\(id)"
         }
@@ -80,6 +81,7 @@ struct ClippingsListScreen: View {
         switch selection {
         case .copied: return "Copied"
         case .clipboard: return "Clipboard"
+        case .favorites: return "Favorites"
         case .userList(let id):
             // Look up the actual list name via a quick descriptor. Falls
             // back to the generic "List" if the list was deleted while
@@ -314,6 +316,8 @@ private struct QueryList: View {
         switch selection {
         case .copied, .clipboard, .userList:
             predicate = #Predicate<Clipping> { $0.deleteDate == nil }
+        case .favorites:
+            predicate = #Predicate<Clipping> { $0.isFavorite == true && $0.deleteDate == nil }
         case .trash:
             predicate = #Predicate<Clipping> { $0.deleteDate != nil }
         }

@@ -14,6 +14,7 @@ struct ListsScreen: View {
     enum Selection: Hashable {
         case copied        // all active clippings
         case clipboard     // live clipboard (same as copied for now)
+        case favorites     // active clippings with isFavorite == true
         case userList(String)  // ClipList.listID
         case trash
     }
@@ -37,6 +38,8 @@ struct ListsScreen: View {
     private var activeClippings: [Clipping]
     @Query(filter: #Predicate<Clipping> { $0.deleteDate != nil })
     private var trashedClippings: [Clipping]
+    @Query(filter: #Predicate<Clipping> { $0.isFavorite == true && $0.deleteDate == nil })
+    private var favoriteClippings: [Clipping]
     @Query(sort: \ClipList.sortOrder)
     private var userLists: [ClipList]
 
@@ -44,6 +47,7 @@ struct ListsScreen: View {
 
     private var totalCount: Int { activeClippings.count }
     private var trashCount: Int { trashedClippings.count }
+    private var favoritesCount: Int { favoriteClippings.count }
 
     /// Derived from the Mac default (maxHistory=500 from `ClipboardService`).
     /// When at or over this limit, the count turns red — matches the screenshot.
@@ -59,6 +63,15 @@ struct ListsScreen: View {
                         title: "Copied",
                         trailing: "\(totalCount)",
                         trailingColor: isOverLimit ? .copiedRed : .copiedSecondaryLabel
+                    )
+                }
+                NavigationLink(value: Selection.favorites) {
+                    RowLabel(
+                        icon: "star.fill",
+                        iconColor: .copiedTeal,
+                        title: "Favorites",
+                        trailing: "\(favoritesCount)",
+                        trailingColor: .copiedSecondaryLabel
                     )
                 }
                 NavigationLink(value: Selection.clipboard) {
