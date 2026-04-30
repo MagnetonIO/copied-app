@@ -82,6 +82,19 @@ final class CopiedIOSAppDelegate: NSObject, UIApplicationDelegate {
     ) {
         NSLog("[CopiedIOSApp] remote notification registration failed: \(error.localizedDescription)")
     }
+
+    /// iOS calls this on memory pressure. Drop the bounded in-memory caches
+    /// and roll back the shared mainContext so its row cache (including
+    /// faulted externalStorage blobs from image previews / copy operations)
+    /// is released. Persistent state is unaffected — every mutation has
+    /// already been saved, so rollback only frees row-cache RAM.
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        Task { @MainActor in
+            ThumbnailCache.shared.purge()
+            SharedIOSData.container.mainContext.rollback()
+        }
+        NSLog("[CopiedIOSApp] memory warning — purged thumbnail cache + rolled back mainContext")
+    }
 }
 
 @main
@@ -193,6 +206,13 @@ struct CopiedIOSApp: App {
                     await CopiedSyncEngine.shared.syncNow()
                     await CopiedSyncEngine.shared.manualInboundFetch(source: "ios.scenePhase.active")
                 }
+            } else if new == .background {
+                // Drop in-memory caches when backgrounded. iOS reclaims RAM
+                // from inactive apps aggressively; releasing now reduces our
+                // suspended-state footprint and the chance the OS jetsams us
+                // before the user returns.
+                ThumbnailCache.shared.purge()
+                SharedIOSData.container.mainContext.rollback()
             }
         }
     }

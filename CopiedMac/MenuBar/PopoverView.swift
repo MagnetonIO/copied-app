@@ -325,11 +325,19 @@ struct PopoverView: View {
             // pin, edit text) must reflect immediately, not be debounced.
             refreshFreshClippings(force: true)
         }
-        // Drop the thumbnail cache when the popover loses key window status
+        // Drop in-memory caches when the popover loses key window status
         // (popover dismissed). scenePhase inactive doesn't fire reliably for
-        // MenuBarExtra .window-style; this notification does.
+        // MenuBarExtra .window-style; this notification does. Beyond
+        // thumbnails, roll back the shared mainContext so its row cache
+        // (including any externalStorage blobs faulted in for image preview /
+        // copy operations) is released — that row cache is the dominant
+        // source of unbounded RSS growth. The mainContext has no pending
+        // changes (every mutation is saved immediately), so rollback is
+        // safe and re-faults only what the next @Query touches.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             ThumbnailCache.shared.purge()
+            AppIconCache.shared.purge()
+            SharedData.container.mainContext.rollback()
         }
     }
 
@@ -748,7 +756,13 @@ struct PopoverView: View {
                     .ignoresSafeArea()
                     .onTapGesture { previewClipID = nil }
 
-                if clip.contentKind == .image, let data = clip.imageData, let nsImage = NSImage(data: data) {
+                if clip.contentKind == .image,
+                   let data = ClipboardService.readBlob(
+                       in: SharedData.container,
+                       clippingID: clip.clippingID,
+                       key: \Clipping.imageData
+                   ),
+                   let nsImage = NSImage(data: data) {
                     // Image preview
                     VStack(spacing: 12) {
                         Image(nsImage: nsImage)
@@ -766,7 +780,11 @@ struct PopoverView: View {
 
                         HStack(spacing: 16) {
                             Button("Copy") {
-                                if let imageData = clip.imageData {
+                                if let imageData = ClipboardService.readBlob(
+                                    in: SharedData.container,
+                                    clippingID: clip.clippingID,
+                                    key: \Clipping.imageData
+                                ) {
                                     let type: NSPasteboard.PasteboardType = clip.imageFormat == "png" ? .png : .tiff
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setData(imageData, forType: type)
@@ -875,13 +893,20 @@ struct PopoverView: View {
         default: ext = "txt"
         }
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("copied-snippet.\(ext)")
+        let tempURL = ClipboardService.quickLookCacheDirectory()
+            .appendingPathComponent("snippet.\(ext)")
         try? text.write(to: tempURL, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(tempURL)
     }
 
     private func openImageInDefaultViewer(_ clipping: Clipping) {
-        guard let data = clipping.imageData else { return }
+        // Read the blob through an ephemeral context so the bytes don't
+        // pin in the shared mainContext row cache after the viewer opens.
+        guard let data = ClipboardService.readBlob(
+            in: SharedData.container,
+            clippingID: clipping.clippingID,
+            key: \Clipping.imageData
+        ) else { return }
         let ext: String
         switch clipping.imageFormat.lowercased() {
         case "png": ext = "png"
@@ -892,8 +917,8 @@ struct PopoverView: View {
         default: ext = "tiff"
         }
         let slug = String(clipping.clippingID.prefix(8))
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("copied-\(slug).\(ext)")
+        let tempURL = ClipboardService.quickLookCacheDirectory()
+            .appendingPathComponent("image-\(slug).\(ext)")
         do {
             try data.write(to: tempURL, options: .atomic)
             NSWorkspace.shared.open(tempURL)
@@ -1071,7 +1096,14 @@ struct PopoverView: View {
     }
 
     private func copyAsRichText(_ clipping: Clipping) {
-        guard let rtfData = clipping.richTextData else { return }
+        // Read RTF blob through an ephemeral context — keeps the bytes out
+        // of the shared mainContext row cache once the pasteboard write is
+        // complete.
+        guard let rtfData = ClipboardService.readBlob(
+            in: SharedData.container,
+            clippingID: clipping.clippingID,
+            key: \Clipping.richTextData
+        ) else { return }
         clipboardService.skipNextCapture = true
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -1085,7 +1117,11 @@ struct PopoverView: View {
     }
 
     private func copyAsHTML(_ clipping: Clipping) {
-        guard let htmlData = clipping.htmlData else { return }
+        guard let htmlData = ClipboardService.readBlob(
+            in: SharedData.container,
+            clippingID: clipping.clippingID,
+            key: \Clipping.htmlData
+        ) else { return }
         clipboardService.skipNextCapture = true
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -1123,13 +1159,12 @@ struct PopoverView: View {
     /// and scroll-forward both land on cache hits. Fire-and-forget — the cache
     /// returns early if an entry already exists, and failures are silent.
     ///
-    /// Caches-hits short-circuit before touching `imageData` so most prefetch
-    /// calls never fault the externalStorage blob. For misses, we fault the
-    /// blob through `freshAllClippings`'s long-lived popover ModelContext
-    /// (cheap, sub-ms for thumbnail-sized images), then hand the bytes to a
-    /// detached decode. This avoids spinning up a fresh ModelContext per
-    /// prefetch — the previous design accumulated short-lived contexts during
-    /// fast scroll, each retaining its materialized Clipping until ARC drained.
+    /// Cache-hits short-circuit before any blob fetch so most prefetch calls
+    /// never touch externalStorage. For misses, we fault the blob through a
+    /// per-call ephemeral `ModelContext` (`ClipboardService.readBlob`) so the
+    /// bytes don't pin in the shared mainContext row cache the way reading
+    /// `clip.imageData` directly would. The bytes are then handed to a
+    /// detached decode and immediately released after Thumbnail decode.
     private func prefetchAdjacentThumbnails(around index: Int) {
         let window = 5
         let start = max(0, index - window)
@@ -1142,9 +1177,17 @@ struct PopoverView: View {
             if ThumbnailCache.shared.cachedThumbnail(for: clippingID, maxSize: 96) != nil {
                 continue
             }
-            guard let data = clip.imageData else { continue }
             Task.detached(priority: .utility) {
-                _ = await ThumbnailCache.shared.decodeThumbnail(for: clippingID, data: data, maxSize: 96)
+                guard let data = await ClipboardService.readBlob(
+                    in: SharedData.container,
+                    clippingID: clippingID,
+                    key: \Clipping.imageData
+                ) else { return }
+                _ = await ThumbnailCache.shared.decodeThumbnail(
+                    for: clippingID,
+                    data: data,
+                    maxSize: 96
+                )
             }
         }
     }
@@ -1162,14 +1205,29 @@ struct PopoverView: View {
         if let url = clipping.url {
             pasteboard.setString(url, forType: .URL)
         }
-        if let imageData = clipping.imageData {
+        // Blob fields go through ephemeral contexts — keeps `imageData` /
+        // `richTextData` / `htmlData` bytes out of the shared mainContext
+        // row cache after the pasteboard write. We only fetch the blobs the
+        // model says exist (`hasImage` / `hasRichText` / `hasHTML`) so we
+        // skip the fetch round-trip entirely for text-only clippings.
+        let id = clipping.clippingID
+        if clipping.hasImage,
+           let imageData = ClipboardService.readBlob(
+               in: SharedData.container, clippingID: id, key: \Clipping.imageData
+           ) {
             let type: NSPasteboard.PasteboardType = clipping.imageFormat == "png" ? .png : .tiff
             pasteboard.setData(imageData, forType: type)
         }
-        if let rtfData = clipping.richTextData {
+        if clipping.hasRichText,
+           let rtfData = ClipboardService.readBlob(
+               in: SharedData.container, clippingID: id, key: \Clipping.richTextData
+           ) {
             pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
         }
-        if let htmlData = clipping.htmlData {
+        if clipping.hasHTML,
+           let htmlData = ClipboardService.readBlob(
+               in: SharedData.container, clippingID: id, key: \Clipping.htmlData
+           ) {
             pasteboard.setData(htmlData, forType: .html)
         }
 

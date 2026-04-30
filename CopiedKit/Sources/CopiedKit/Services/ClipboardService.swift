@@ -99,6 +99,64 @@ public final class ClipboardService {
         self.captureRichText = UserDefaults.standard.object(forKey: "captureRichText") as? Bool ?? true
     }
 
+    /// Canonical cache directory for QuickLook temp files
+    /// (`~/Library/Caches/Copied/quicklook/`). Created on first access;
+    /// caller is responsible for writing the file. Use the directory for
+    /// any short-lived file the user might double-click to open externally
+    /// — keeps `/tmp` clean and gives `cleanupQuickLookCache(olderThan:)`
+    /// a single dir to prune.
+    public static func quickLookCacheDirectory() -> URL {
+        let fm = FileManager.default
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let dir = caches
+            .appendingPathComponent("Copied", isDirectory: true)
+            .appendingPathComponent("quicklook", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Delete QuickLook temp files older than `seconds`. Default 24 h. Run
+    /// once at app launch — these files are written when the user opens a
+    /// snippet/image in the default viewer and serve no purpose afterwards.
+    public static func cleanupQuickLookCache(olderThan seconds: TimeInterval = 86_400) {
+        let dir = quickLookCacheDirectory()
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-seconds)
+        for url in entries {
+            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            if mtime < cutoff {
+                try? fm.removeItem(at: url)
+            }
+        }
+    }
+
+    /// Fetch one externalStorage blob through an ephemeral `ModelContext` so
+    /// the materialized `Data` doesn't pin in the shared `mainContext` row
+    /// cache. The context drops at the end of this scope, releasing the
+    /// faulted bytes once the caller has copied them out (to the pasteboard,
+    /// ThumbnailCache, CKAsset temp file, etc.). Use for `imageData`,
+    /// `richTextData`, `htmlData` reads from view code; SwiftUI `@Query`
+    /// keeps reading scalars off the shared mainContext as before.
+    public static func readBlob(
+        in container: ModelContainer,
+        clippingID: String,
+        key: KeyPath<Clipping, Data?>
+    ) -> Data? {
+        let ctx = ModelContext(container)
+        var descriptor = FetchDescriptor<Clipping>(
+            predicate: #Predicate { $0.clippingID == clippingID }
+        )
+        descriptor.fetchLimit = 1
+        return (try? ctx.fetch(descriptor))?.first?[keyPath: key]
+    }
+
     /// Trim history to `maxHistory` immediately. Call this from Settings when
     /// the user lowers the limit so trimming doesn't wait for the next capture.
     public func trimHistoryNow() {

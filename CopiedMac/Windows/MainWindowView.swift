@@ -94,6 +94,15 @@ struct MainWindowView: View {
                 Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.mainWindow.sceneActive") }
             }
         }
+        // Release in-memory caches when the main window closes. Without
+        // this, every blob field (image / rich-text / HTML) read while the
+        // window was open stays pinned in the shared mainContext row cache
+        // for the rest of the app's lifetime.
+        .onDisappear {
+            ThumbnailCache.shared.purge()
+            AppIconCache.shared.purge()
+            SharedData.container.mainContext.rollback()
+        }
     }
 
     // MARK: - Sidebar
@@ -598,14 +607,26 @@ private func copyClippingToPasteboard(
     pb.clearContents()
     if let text = clipping.text { pb.setString(text, forType: .string) }
     if let url = clipping.url { pb.setString(url, forType: .URL) }
-    if let imageData = clipping.imageData {
+    // Blob fields go through ephemeral contexts so the bytes don't pin in
+    // the main window's mainContext row cache after the pasteboard write.
+    let id = clipping.clippingID
+    if clipping.hasImage,
+       let imageData = ClipboardService.readBlob(
+           in: SharedData.container, clippingID: id, key: \Clipping.imageData
+       ) {
         let type: NSPasteboard.PasteboardType = clipping.imageFormat == "png" ? .png : .tiff
         pb.setData(imageData, forType: type)
     }
-    if let rtfData = clipping.richTextData {
+    if clipping.hasRichText,
+       let rtfData = ClipboardService.readBlob(
+           in: SharedData.container, clippingID: id, key: \Clipping.richTextData
+       ) {
         pb.setData(rtfData, forType: clipping.richTextPasteboardType)
     }
-    if let htmlData = clipping.htmlData {
+    if clipping.hasHTML,
+       let htmlData = ClipboardService.readBlob(
+           in: SharedData.container, clippingID: id, key: \Clipping.htmlData
+       ) {
         pb.setData(htmlData, forType: .html)
     }
     clipping.markUsed()
@@ -633,16 +654,29 @@ private func clippingContextMenuContent(
             clipping.markUsed()
         }
     }
-    if clipping.hasRichText, let rtf = clipping.richTextData {
+    // Gate on `hasRichText` only — the actual blob is read on click via
+    // an ephemeral context so the bytes don't pin in the mainContext row
+    // cache just because the menu was instantiated.
+    if clipping.hasRichText {
         Button("Copy as Rich Text") {
+            guard let rtf = ClipboardService.readBlob(
+                in: SharedData.container,
+                clippingID: clipping.clippingID,
+                key: \Clipping.richTextData
+            ) else { return }
             clipboardService.skipNextCapture = true
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setData(rtf, forType: clipping.richTextPasteboardType)
             clipping.markUsed()
         }
     }
-    if clipping.hasHTML, let html = clipping.htmlData {
+    if clipping.hasHTML {
         Button("Copy as HTML") {
+            guard let html = ClipboardService.readBlob(
+                in: SharedData.container,
+                clippingID: clipping.clippingID,
+                key: \Clipping.htmlData
+            ) else { return }
             clipboardService.skipNextCapture = true
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setData(html, forType: .html)

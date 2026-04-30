@@ -12,6 +12,17 @@ public final class AppIconCache {
 
     private init() {
         cache.countLimit = 200
+        // ~16 MB ceiling. Each downsampled icon is roughly 32×32 RGBA = 4 KB,
+        // but `NSWorkspace.icon(forFile:)` can return larger backing images
+        // before the redraw pass. Bound by bytes too so a few oversized icons
+        // can't blow past the count limit's intended footprint.
+        cache.totalCostLimit = 16 * 1024 * 1024
+    }
+
+    /// Drops every cached icon. Wired into the Mac memory-pressure handler
+    /// and popover/window dismiss paths so resident set returns to baseline.
+    public func purge() {
+        cache.removeAllObjects()
     }
 
     public func icon(for bundleID: String?) -> NSImage? {

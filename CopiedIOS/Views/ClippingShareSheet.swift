@@ -23,7 +23,13 @@ struct ClippingShareSheet: UIViewControllerRepresentable {
     /// URL string so we never hand `UIActivityViewController` an empty
     /// payload (which produces a broken-looking share sheet).
     static func items(for clipping: Clipping) -> [Any] {
-        if let data = clipping.imageData, let img = UIImage(data: data) {
+        if clipping.hasImage,
+           let data = ClipboardService.readBlob(
+               in: SharedIOSData.container,
+               clippingID: clipping.clippingID,
+               key: \Clipping.imageData
+           ),
+           let img = UIImage(data: data) {
             return [img]
         }
         if let urlString = clipping.url,

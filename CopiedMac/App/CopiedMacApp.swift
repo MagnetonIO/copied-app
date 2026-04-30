@@ -186,6 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Quit) — the standard Mac convention for menu-bar utilities.
     private var menuBarRightClickMonitor: Any?
     private var syncBackstopTimer: Timer?
+    /// Listens for OS memory-pressure events. On `.warning` or `.critical`,
+    /// drops in-memory caches (thumbnails, app icons, SwiftData row cache).
+    /// Without this, the menu-bar app's RSS grows unbounded as the user
+    /// browses image-heavy histories — `mainContext` materializes every
+    /// `imageData`/`richTextData`/`htmlData` blob it touches and never
+    /// releases them.
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
     let pasteQueue = PasteQueueService()
     let appState = AppState()
     let syncMonitor = SyncMonitor()
@@ -239,6 +246,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         clipboardService.trimByAge()
         clipboardService.purgeOldTrash()
+        // Prune QuickLook temp files older than 24 h (default viewer
+        // exports for snippets and images). Previously these landed in
+        // /tmp and were never cleaned; now they live under
+        // ~/Library/Caches/Copied/quicklook/ and this pass keeps the
+        // directory bounded.
+        ClipboardService.cleanupQuickLookCache()
 
         syncMonitor.start()
 
@@ -338,6 +351,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 SharedData.container.mainContext.processPendingChanges()
             }
         }
+
+        // Memory-pressure handler. The dispatch source fires on the main
+        // queue when the OS is under memory pressure; we drop the bounded
+        // in-memory caches and roll back the shared mainContext so its row
+        // cache (including any materialized externalStorage blobs) is
+        // released. Persisted state is unaffected — every mutation already
+        // saves immediately, so there are no pending changes to lose.
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            self?.purgeInMemoryCaches(reason: "memoryPressure")
+        }
+        source.resume()
+        memoryPressureSource = source
 
         #if MAS_STOREFRONT
         // Start the Transaction.updates listener early so Ask-to-Buy approvals,
@@ -582,6 +611,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func rightClickMenuQuit() {
         NSApp.terminate(nil)
+    }
+
+    /// Drops every in-memory cache that grows with usage. Called from the
+    /// memory-pressure dispatch source, popover dismiss
+    /// (`NSWindow.didResignKey`), and main window close. Persistent SwiftData
+    /// state is unaffected — `mainContext.rollback()` only releases the row
+    /// cache, since every mutation has already been saved.
+    func purgeInMemoryCaches(reason: String) {
+        ThumbnailCache.shared.purge()
+        AppIconCache.shared.purge()
+        SharedData.container.mainContext.rollback()
+        syncProfileLogger.log("purgeInMemoryCaches reason=\(reason, privacy: .public)")
     }
 }
 

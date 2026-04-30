@@ -216,7 +216,14 @@ struct ClippingsListScreen: View {
         if let urlString = clipping.url, let url = URL(string: urlString) {
             item[UTType.url.identifier] = url
         }
-        if let imageData = clipping.imageData {
+        // Read blob through ephemeral context so the bytes don't pin in the
+        // shared mainContext row cache after the pasteboard write.
+        if clipping.hasImage,
+           let imageData = ClipboardService.readBlob(
+               in: SharedIOSData.container,
+               clippingID: clipping.clippingID,
+               key: \Clipping.imageData
+           ) {
             item[UTType.png.identifier] = imageData
         }
         // Use the service API so `lastChangeCount` advances in step with the

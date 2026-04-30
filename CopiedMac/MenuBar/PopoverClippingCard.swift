@@ -211,7 +211,13 @@ struct PopoverClippingCard: View {
                 #if canImport(AppKit)
                 AsyncThumbnailImage(
                     clippingID: clipping.clippingID,
-                    dataProvider: { [clipping] in clipping.imageData },
+                    dataProvider: { [clippingID = clipping.clippingID] in
+                        ClipboardService.readBlob(
+                            in: SharedData.container,
+                            clippingID: clippingID,
+                            key: \Clipping.imageData
+                        )
+                    },
                     maxSize: 96
                 )
                 .frame(width: 96, height: 60)
@@ -240,7 +246,13 @@ struct PopoverClippingCard: View {
                 if clipping.hasImage {
                     AsyncThumbnailImage(
                         clippingID: clipping.clippingID,
-                        dataProvider: { [clipping] in clipping.imageData },
+                        dataProvider: { [clippingID = clipping.clippingID] in
+                        ClipboardService.readBlob(
+                            in: SharedData.container,
+                            clippingID: clippingID,
+                            key: \Clipping.imageData
+                        )
+                    },
                         maxSize: 96
                     )
                     .frame(width: 96, height: 60)
