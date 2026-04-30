@@ -309,12 +309,7 @@ struct MainWindowView: View {
     }
 
     private func createList(named rawName: String) {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let list = ClipList(name: name)
-        list.sortOrder = lists.count
-        modelContext.insert(list)
-        try? modelContext.save()
+        _ = ClipboardService.createList(named: rawName, in: modelContext)
     }
 }
 

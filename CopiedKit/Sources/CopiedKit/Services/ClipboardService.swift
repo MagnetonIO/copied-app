@@ -1223,6 +1223,34 @@ public final class ClipboardService {
     // time via `contentHash`, so duplicates can never reach storage
     // and there is nothing for a manual cleanup pass to collect.
 
+    // MARK: - List Creation
+
+    /// Trim, validate, insert, save, and enqueue a new `ClipList`. Single source
+    /// of truth shared by the main-window sidebar (COP-98) and the popover's
+    /// "+ New List…" affordance (COP-98) — and consumed by COP-99's per-row
+    /// list-picker so a user can create-and-assign in one gesture.
+    ///
+    /// Returns the inserted list on success, `nil` if the trimmed name is empty.
+    /// `sortOrder` is set to the current ClipList count so the new entry sorts
+    /// to the end of the sidebar — matching the pre-extraction behaviour.
+    @MainActor
+    public static func createList(named rawName: String, in context: ModelContext) -> ClipList? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let existingCount = (try? context.fetchCount(FetchDescriptor<ClipList>())) ?? 0
+        let list = ClipList(name: name)
+        list.sortOrder = existingCount
+        context.insert(list)
+        try? context.save()
+        // The previous in-view createList() did not enqueue a CloudKit
+        // upload, so user-created lists only synced when an unrelated
+        // mutation flushed the engine. Push the saveRecord directly.
+        CopiedSyncEngine.shared.enqueueChange(
+            recordID: CopiedSyncEngine.clipListRecordID(list.listID)
+        )
+        return list
+    }
+
     private func enforceHistoryLimit() {
         guard let modelContext else { return }
 

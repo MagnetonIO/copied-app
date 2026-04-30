@@ -62,6 +62,12 @@ struct PopoverView: View {
     @State private var prefetchPendingIndices: Set<Int> = []
     @State private var prefetchDebounceTask: Task<Void, Never>?
     @State private var freshAllClippings: [Clipping] = []
+    /// Drives the "+ New List…" alert raised from `listFilterMenu`. The
+    /// popover sits in a MenuBarExtra window where opening a separate
+    /// SwiftUI sheet collapses the popover, so we use an inline `.alert`
+    /// (same pattern as `MainWindowView`) anchored on the popover root.
+    @State private var isNamingNewListFromPopover = false
+    @State private var newListNameDraft = ""
     /// Coalesce duplicate `refreshFreshClippings()` triggers — `.onAppear`,
     /// scenePhase, and `localClippingsRevision` can fire within ~50 ms of
     /// each other on popover reopen. Skip refresh if one ran recently
@@ -339,6 +345,22 @@ struct PopoverView: View {
             AppIconCache.shared.purge()
             SharedData.container.mainContext.rollback()
         }
+        .alert("New List", isPresented: $isNamingNewListFromPopover) {
+            TextField("List name", text: $newListNameDraft)
+            Button("Create") {
+                if let list = ClipboardService.createList(named: newListNameDraft, in: modelContext) {
+                    // Auto-focus the popover filter onto the freshly-created
+                    // list so the user immediately sees an empty filtered
+                    // view ready to receive assignments (COP-99 wiring).
+                    appState.popoverListFilterID = list.listID
+                    bumpLocalMutationTick()
+                }
+            }
+            .disabled(newListNameDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Give your list a name — you can rename it later from the main window.")
+        }
     }
 
     // MARK: - Search Bar
@@ -443,6 +465,13 @@ struct PopoverView: View {
     /// `filterMenu` so the two controls read as a pair.
     private var listFilterMenu: some View {
         Menu {
+            Button {
+                newListNameDraft = ""
+                isNamingNewListFromPopover = true
+            } label: {
+                Label("New List…", systemImage: "folder.badge.plus")
+            }
+            Divider()
             Button {
                 appState.popoverListFilterID = nil
             } label: {
