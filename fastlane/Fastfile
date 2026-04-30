@@ -5,6 +5,7 @@ default_platform(:mac)
 #   APP_STORE_CONNECT_API_ISSUER_ID
 #   APP_STORE_CONNECT_API_KEY_PATH  (relative to repo root, e.g. .keys/AuthKey_XXX.p8)
 require "dotenv"
+require "open3"
 Dotenv.load(File.expand_path("../.env", __dir__))
 
 # App Store Connect API key auth. Uses the .p8 on disk — key never leaves the machine.
@@ -169,6 +170,78 @@ platform :mac do
     )
   end
 
+  # ──────────────────────────────────────────────────────────────────────
+  # GitHub release lanes — see ship / ship_patch below for the orchestrated
+  # one-command release pipelines that use these.
+  # ──────────────────────────────────────────────────────────────────────
+
+  desc "Build paid-license PKG and create a NEW GitHub release tagged with the current MARKETING_VERSION. Use when you've bumped MARKETING_VERSION for a fresh patch/minor/major. Auto-generates release notes from commits since the previous tag. Aborts if the tag already exists — use replace_pkg for that case."
+  lane :release_pkg do
+    ensure_gh_cli!
+    version = read_marketing_version
+    tag = "v#{version}"
+    pkg_path = "build/license/Copied-v#{version}.pkg"
+
+    UI.header "GitHub release pipeline → #{tag}"
+
+    if gh_release_exists?(tag)
+      UI.user_error!("Release #{tag} already exists. To replace its asset (build-number bump on the same marketing version), use `fastlane mac replace_pkg` instead.")
+    end
+
+    paid_license_build
+    File.exist?(File.expand_path("../#{pkg_path}", __dir__)) ||
+      UI.user_error!("PKG missing at #{pkg_path} after paid_license_build")
+
+    sh(%(cd '#{File.expand_path("..", __dir__)}' && gh release create '#{tag}' '#{pkg_path}' --title 'Copied #{version}' --generate-notes))
+    UI.success "Published GitHub release #{tag} with #{File.basename(pkg_path)}"
+  end
+
+  desc "Bump CFBundleVersion only (build number), build paid-license PKG, REPLACE the asset on the existing GitHub release. Use when you need to ship a fix for the same marketing version (e.g., 1.3.3 build 1 → 1.3.3 build 2) without creating a new release. The release tag for the current MARKETING_VERSION must already exist."
+  lane :replace_pkg do
+    ensure_gh_cli!
+    version = read_marketing_version
+    tag = "v#{version}"
+    pkg_path = "build/license/Copied-v#{version}.pkg"
+
+    unless gh_release_exists?(tag)
+      UI.user_error!("Release #{tag} does not exist. Use `fastlane mac release_pkg` to create it first.")
+    end
+
+    sh("../scripts/bump-build.sh")
+    paid_license_build
+    File.exist?(File.expand_path("../#{pkg_path}", __dir__)) ||
+      UI.user_error!("PKG missing at #{pkg_path} after paid_license_build")
+
+    sh(%(cd '#{File.expand_path("..", __dir__)}' && gh release upload '#{tag}' '#{pkg_path}' --clobber))
+    UI.success "Replaced #{File.basename(pkg_path)} asset on GitHub release #{tag}"
+  end
+
+  desc "Full new-version pipeline: builds + publishes the GitHub release (tag = current MARKETING_VERSION), uploads Mac MAS .pkg to TestFlight, archives + uploads iOS to TestFlight. Bumps CFBundleVersion ONCE so Mac + iOS share a build number for this train. Aborts if the GitHub tag already exists — use ship_patch instead."
+  lane :ship do
+    release_pkg
+    sh("../scripts/bump-build.sh")  # one bump shared by Mac MAS + iOS TF uploads
+    mas_build
+    testflight
+    # iOS lanes live in the `platform :ios do` block; reach them via shell
+    # rather than cross-platform runner gymnastics — same pattern as
+    # scripts/release-testflight.sh.
+    repo = File.expand_path("..", __dir__)
+    sh("cd '#{repo}' && bundle exec fastlane ios archive")
+    sh("cd '#{repo}' && bundle exec fastlane ios testflight")
+    UI.success "🚢 Shipped paid-license PKG + Mac TF + iOS TF for v#{read_marketing_version}"
+  end
+
+  desc "Same-version patch pipeline: bumps CFBundleVersion, replaces the existing GitHub release's PKG asset, uploads Mac MAS .pkg to TestFlight, archives + uploads iOS to TestFlight. Use for a build-number bump on the current marketing version."
+  lane :ship_patch do
+    replace_pkg              # already bumps CFBundleVersion
+    mas_build                # picks up the bumped build number
+    testflight
+    repo = File.expand_path("..", __dir__)
+    sh("cd '#{repo}' && bundle exec fastlane ios archive")
+    sh("cd '#{repo}' && bundle exec fastlane ios testflight")
+    UI.success "🚢 Shipped patch for v#{read_marketing_version} (build #{read_build_number})"
+  end
+
   # Shared implementation for .pkg outputs (OSS + paid-license). Same
   # archive+export path as build_variant, but wraps the .app in a productbuild
   # component pkg signed with the Developer ID Installer cert. Stapler staples
@@ -259,6 +332,37 @@ platform :mac do
     project_yml = File.read(File.expand_path("../project.yml", __dir__))
     m = project_yml.match(/MARKETING_VERSION:\s*"([^"]+)"/)
     m ? m[1] : "1.0.0"
+  end
+
+  def read_build_number
+    project_yml = File.read(File.expand_path("../project.yml", __dir__))
+    m = project_yml.match(/CFBundleVersion:\s*"([^"]+)"/)
+    m ? m[1] : "1"
+  end
+
+  # ──────────────────────────────────────────────────────────────────────
+  # GitHub release helpers (used by release_pkg / replace_pkg / ship lanes)
+  # ──────────────────────────────────────────────────────────────────────
+
+  def ensure_gh_cli!
+    unless system("command -v gh > /dev/null 2>&1")
+      UI.user_error!("GitHub CLI (`gh`) not installed. brew install gh")
+    end
+    unless system("gh auth status > /dev/null 2>&1")
+      UI.user_error!("`gh` is installed but not authenticated. Run `gh auth login` first.")
+    end
+  end
+
+  # Check whether a release tag already exists on the canonical repo.
+  # Returns true on hit, false on 404, surfaces other errors.
+  def gh_release_exists?(tag)
+    repo = File.expand_path("..", __dir__)
+    out, status = Open3.capture2e(
+      "cd '#{repo}' && gh release view '#{tag}' --json tagName 2>&1"
+    )
+    return true if status.success?
+    return false if out.include?("release not found") || out.include?("not found")
+    UI.user_error!("Unexpected `gh release view #{tag}` failure: #{out}")
   end
 
   # Notarize the given .app / .dmg / .pkg if an App Store Connect API key is configured.
