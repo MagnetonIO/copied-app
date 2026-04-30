@@ -1,8 +1,11 @@
 import SwiftUI
+import SwiftData
 import CopiedKit
 
 /// A single clipping card in the popover — clean design matching original Copied style.
 struct PopoverClippingCard: View {
+    @Environment(\.modelContext) private var modelContext
+
     let clipping: Clipping
     let index: Int
     let isSelected: Bool
@@ -10,6 +13,20 @@ struct PopoverClippingCard: View {
     /// Called once, only on genuine cursor movement into the row. Parent uses this
     /// to clear its `isKeyboardNavigating` flag so mouse reclaims control.
     var onMouseMoved: (() -> Void)? = nil
+
+    /// All user lists (sorted), passed in from PopoverView so we reuse the parent's
+    /// `@Query` instead of re-fetching per row.
+    var availableLists: [ClipList] = []
+
+    /// Invoked when the user picks "+ New List…" from the per-row picker. PopoverView
+    /// owns the naming alert (sheets dismiss the MenuBarExtra popover, per COP-98)
+    /// and uses this clipping as the auto-assign target once the user names the list.
+    var onRequestNewList: ((Clipping) -> Void)? = nil
+
+    /// Bumped after a list assignment / clear so the parent can refresh its
+    /// `freshAllClippings` snapshot — otherwise the row would appear unchanged
+    /// until the next sync tick.
+    var onLocalMutation: (() -> Void)? = nil
 
     /// Hover is row-local: writes stay inside this view and don't re-render the parent
     /// popover or other rows. Previously the parent held `hoveredID` and every `.onHover`
@@ -316,6 +333,10 @@ struct PopoverClippingCard: View {
             }
             .buttonStyle(.plain)
 
+            // Menu (not a sheet) because sheets dismiss the MenuBarExtra popover
+            // by losing key window status (per COP-98 discovery).
+            addToListMenu
+
             Button {
                 clipping.moveToTrash()
             } label: {
@@ -328,6 +349,52 @@ struct PopoverClippingCard: View {
             .buttonStyle(.plain)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.8)))
+    }
+
+    private var addToListMenu: some View {
+        Menu {
+            Button {
+                onRequestNewList?(clipping)
+            } label: {
+                Label("New List…", systemImage: "folder.badge.plus")
+            }
+            if !availableLists.isEmpty {
+                Divider()
+                ForEach(availableLists) { list in
+                    Button {
+                        clipping.list = list
+                        clipping.persist()
+                        onLocalMutation?()
+                    } label: {
+                        HStack {
+                            Text(list.name)
+                            if clipping.list?.listID == list.listID {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+            if clipping.list != nil {
+                Divider()
+                Button(role: .destructive) {
+                    clipping.list = nil
+                    clipping.persist()
+                    onLocalMutation?()
+                } label: {
+                    Label("Remove from List", systemImage: "folder.badge.minus")
+                }
+            }
+        } label: {
+            Image(systemName: clipping.list != nil ? "text.badge.checkmark" : "text.badge.plus")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(clipping.list != nil ? Color.accentColor : Color.secondary)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }
 
