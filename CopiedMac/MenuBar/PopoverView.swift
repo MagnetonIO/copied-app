@@ -99,6 +99,13 @@ struct PopoverView: View {
     /// unless the caller forces it (local edit paths).
     @State private var lastRefreshAt: Date = .distantPast
 
+    /// COP-105: while the user is actively searching, defer SyncTicker-driven
+    /// refreshes (which re-run the SwiftData fetch + fuzzy-match pipeline on
+    /// the main thread mid-keystroke). The deferred refresh fires once when
+    /// the search clears, so the user sees up-to-date results as soon as
+    /// they're done typing.
+    @State private var pendingTickRefresh: Bool = false
+
     /// Bumped from local mutation paths (markUsed, favorite, pin, delete, edit
     /// commit) so `.onChange(of: localMutationTick)` can refresh
     /// freshAllClippings without rendering it on a per-property hash of every
@@ -269,7 +276,15 @@ struct PopoverView: View {
             // popover doesn't activate the app, so the engine's push
             // queue won't be flushed and fetchChanges no-ops. Manual
             // path issues a real CKFetchRecordZoneChangesOperation.
-            Task.detached { await CopiedSyncEngine.shared.manualInboundFetch(source: "mac.popover.onAppear") }
+            //
+            // COP-105: delay 500 ms so the popover paints first. Without
+            // this, the fetch and its per-batch main-thread imports start
+            // racing the popover's first render, which is what users feel
+            // as "popover takes seconds to open while Checking…".
+            Task.detached {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await CopiedSyncEngine.shared.manualInboundFetch(source: "mac.popover.onAppear")
+            }
         }
         .onKeyPress(.escape) {
             if previewClipID != nil {
@@ -360,7 +375,20 @@ struct PopoverView: View {
             }
         }
         .onChange(of: syncTicker.tick) { _, _ in
-            refreshFreshClippings()
+            // COP-105: while the user is searching, every per-tick refresh
+            // re-runs the SwiftData fetch + fuzzy scoring on main thread
+            // mid-keystroke. Defer until search clears.
+            if !searchDebounced.isEmpty {
+                pendingTickRefresh = true
+            } else {
+                refreshFreshClippings()
+            }
+        }
+        .onChange(of: searchDebounced) { _, newValue in
+            if newValue.isEmpty && pendingTickRefresh {
+                pendingTickRefresh = false
+                refreshFreshClippings(force: true)
+            }
         }
         .onChange(of: localMutationTick) { _, _ in
             // Force-bypass the 100 ms coalesce — local edits (favorite,

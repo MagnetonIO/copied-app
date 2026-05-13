@@ -37,11 +37,35 @@ public final class SyncTicker {
     /// only *changed* matters.
     public private(set) var tick: Int = 0
 
+    /// Leading-edge + trailing-edge throttle so a burst of CloudKit import
+    /// batches produces at most two ticks: one immediately (so the UI sees
+    /// fresh data on the first batch) and one at the end of the burst (so
+    /// it sees the final state). Without this, every per-batch bump fires
+    /// a main-thread refresh in the popover and stutters search typing —
+    /// see COP-105.
+    private var pendingBump = false
+    private var throttleTask: Task<Void, Never>?
+    private let throttleNs: UInt64 = 750_000_000
+
     /// Explicit poke — lets user-initiated "Sync Now" flow through the
     /// same observation path as automatic CloudKit import ticks. Views
-    /// observing `.tick` refresh immediately.
+    /// observing `.tick` refresh on the leading edge plus once more at
+    /// the end of any burst within ~750 ms.
     public func bump() {
-        tick &+= 1
+        if throttleTask == nil {
+            tick &+= 1
+            throttleTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: self.throttleNs)
+                if self.pendingBump {
+                    self.pendingBump = false
+                    self.tick &+= 1
+                }
+                self.throttleTask = nil
+            }
+        } else {
+            pendingBump = true
+        }
     }
 
     private var observers: [NSObjectProtocol] = []
@@ -62,7 +86,7 @@ public final class SyncTicker {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.tick &+= 1 }
+            Task { @MainActor in self?.bump() }
         }
         observers.append(change)
     }
