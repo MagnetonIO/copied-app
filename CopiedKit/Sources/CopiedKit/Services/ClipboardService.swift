@@ -455,6 +455,10 @@ public final class ClipboardService {
             clipping.deviceName = currentDeviceName
         }
 
+        if clipping.modifiedDate == nil {
+            clipping.modifiedDate = clipping.addDate
+        }
+
         // SHA-256 fingerprint — same content → same hash on every
         // device, serving both capture-time dedup and cross-device
         // dedup in `CopiedSyncEngine.upsertClipping`.
@@ -548,8 +552,12 @@ public final class ClipboardService {
         let types = (items.first?.types ?? []).map(\.rawValue)
         let text = pasteboard.string(forType: .string).flatMap { $0.isEmpty ? nil : $0 }
         let urlString = pasteboard.string(forType: .URL).flatMap { $0.isEmpty ? nil : $0 }
-        let tiffData = captureImages ? pasteboard.data(forType: .tiff) : nil
-        let pngData = captureImages ? pasteboard.data(forType: .png) : nil
+        let pngData = captureImages && types.contains(NSPasteboard.PasteboardType.png.rawValue)
+            ? pasteboard.data(forType: .png)
+            : nil
+        let tiffData = captureImages && pngData == nil
+            ? pasteboard.data(forType: .tiff)
+            : nil
         let richTextData = captureRichText
             ? (pasteboard.data(forType: .rtfd) ?? pasteboard.data(forType: .rtf))
             : nil
@@ -682,15 +690,15 @@ public final class ClipboardService {
 
         // Image data from pasteboard blobs first, then file URL disk read.
         if captureImages {
-            if let tiff = input.tiffData {
-                result.imageData = tiff
-                result.imageFormat = "tiff"
-                result.imageByteCount = tiff.count
-                result.hasImage = true
-            } else if let png = input.pngData {
+            if let png = input.pngData {
                 result.imageData = png
                 result.imageFormat = "png"
                 result.imageByteCount = png.count
+                result.hasImage = true
+            } else if let tiff = input.tiffData {
+                result.imageData = tiff
+                result.imageFormat = "tiff"
+                result.imageByteCount = tiff.count
                 result.hasImage = true
             } else {
                 for url in input.candidateFileURLs {

@@ -15,6 +15,33 @@ struct ClipboardServiceTests {
         return ModelContext(container)
     }
 
+    private func waitForClipping(
+        in ctx: ModelContext,
+        matching predicate: (Clipping) -> Bool = { _ in true }
+    ) async throws -> Clipping {
+        for _ in 0..<50 {
+            if let match = try ctx.fetch(FetchDescriptor<Clipping>()).first(where: predicate) {
+                return match
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        Issue.record("Timed out waiting for clipping")
+        throw CancellationError()
+    }
+
+    private func imageData(type: NSBitmapImageRep.FileType) throws -> Data {
+        let image = NSImage(size: NSSize(width: 12, height: 8))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: 12, height: 8))
+        image.unlockFocus()
+
+        let tiff = try #require(image.tiffRepresentation)
+        guard type != .tiff else { return tiff }
+        let rep = try #require(NSBitmapImageRep(data: tiff))
+        return try #require(rep.representation(using: type, properties: [:]))
+    }
+
     @Test("Configure sets model context")
     func configure() throws {
         let service = ClipboardService()
@@ -67,6 +94,76 @@ struct ClipboardServiceTests {
         #expect(fetched.count == 1)
         #expect(fetched.first?.text?.hasPrefix("test capture") == true)
         #expect(service.captureCount == 1)
+    }
+
+    @Test("Captured clipping gets a local modified date")
+    func manualSaveSetsModifiedDate() async throws {
+        let service = ClipboardService()
+        let ctx = try makeContext()
+        service.configure(modelContext: ctx)
+
+        let text = "modified date capture \(UUID())"
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        service.saveCurrentClipboard()
+
+        let clip = try await waitForClipping(in: ctx) { $0.text == text }
+        #expect(clip.modifiedDate != nil)
+    }
+
+    @Test("Image pasteboard prefers PNG over TIFF")
+    func imageCapturePrefersPNG() async throws {
+        let service = ClipboardService()
+        let ctx = try makeContext()
+        service.configure(modelContext: ctx)
+
+        let png = try imageData(type: .png)
+        let tiff = try imageData(type: .tiff)
+        let item = NSPasteboardItem()
+        item.setData(tiff, forType: .tiff)
+        item.setData(png, forType: .png)
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+
+        service.saveCurrentClipboard()
+
+        let clip = try await waitForClipping(in: ctx) { $0.hasImage }
+        #expect(clip.imageFormat == "png")
+        #expect(clip.imageData == png)
+    }
+
+    @Test("Equal modified remote with same content is redundant")
+    func equalModifiedSameContentRemoteIsRedundant() {
+        let date = Date()
+
+        #expect(CopiedSyncEngine.shouldDropRemoteClipping(
+            localModified: date,
+            incomingModified: date,
+            localContentHash: "same",
+            incomingContentHash: "same",
+            localDeleteDate: nil,
+            incomingDeleteDate: nil
+        ))
+        #expect(!CopiedSyncEngine.shouldDropRemoteClipping(
+            localModified: date,
+            incomingModified: date.addingTimeInterval(1),
+            localContentHash: "same",
+            incomingContentHash: "same",
+            localDeleteDate: nil,
+            incomingDeleteDate: nil
+        ))
+        #expect(!CopiedSyncEngine.shouldDropRemoteClipping(
+            localModified: date,
+            incomingModified: date,
+            localContentHash: "local",
+            incomingContentHash: "remote",
+            localDeleteDate: nil,
+            incomingDeleteDate: nil
+        ))
     }
 
     @Test("Duplicate text is not saved twice")

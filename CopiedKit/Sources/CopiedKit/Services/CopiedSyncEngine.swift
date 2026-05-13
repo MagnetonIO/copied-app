@@ -1334,6 +1334,24 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
     // MARK: - Upsert helpers (main-actor bound; called inside MainActor.run)
 
+    internal static func shouldDropRemoteClipping(
+        localModified: Date?,
+        incomingModified: Date?,
+        localContentHash: String,
+        incomingContentHash: String?,
+        localDeleteDate: Date?,
+        incomingDeleteDate: Date?
+    ) -> Bool {
+        guard let localModified, let incomingModified else { return false }
+        if localModified > incomingModified {
+            return true
+        }
+        guard localModified == incomingModified else { return false }
+        guard let incomingContentHash, !incomingContentHash.isEmpty else { return false }
+        return localContentHash == incomingContentHash
+            && localDeleteDate == incomingDeleteDate
+    }
+
     @MainActor
     private func upsertClipping(
         record: CKRecord,
@@ -1487,15 +1505,20 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 return
             }
 
-            // Standard LWW on modifiedDate. Equal timestamps: remote
-            // wins (consistent cross-device convergence).
-            if let localModified = existing.modifiedDate,
-               let incomingModified,
-               localModified > incomingModified {
+            // Standard LWW on modifiedDate. Equal timestamps only apply
+            // if the remote record is not our just-sent same-content echo.
+            if Self.shouldDropRemoteClipping(
+                localModified: existing.modifiedDate,
+                incomingModified: incomingModified,
+                localContentHash: existing.contentHash,
+                incomingContentHash: record["contentHash"] as? String,
+                localDeleteDate: existing.deleteDate,
+                incomingDeleteDate: incomingDeleteDate
+            ) {
                 Self.profileLogger.log(
-                    "upsertClipping branch=dropOlderRemote id=\(recordName, privacy: .public)"
+                    "upsertClipping branch=dropStaleOrRedundantRemote id=\(recordName, privacy: .public)"
                 )
-                return  // local is newer; drop this remote update
+                return
             }
             Self.profileLogger.log(
                 "upsertClipping branch=applyRemote id=\(recordName, privacy: .public)"
