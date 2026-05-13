@@ -59,6 +59,18 @@ public final class ClipboardService {
     public var captureCount: Int = 0
     public var excludedBundleIDs: Set<String> = []
 
+    /// COP-109: hard-coded ignore set for system processes whose pasteboard
+    /// bumps shouldn't drive a clipping capture. The macOS screenshot UI
+    /// puts multi-MB image bytes onto the pasteboard for every Cmd+Shift+4 /
+    /// Cmd+Shift+5 capture; reading them on main inside extractCaptureInput
+    /// stalls the popover. Kept separate from `excludedBundleIDs` (which
+    /// starts empty and is overwritten by Settings save) so the default
+    /// can't be lost by user actions.
+    private static let systemIgnoredBundleIDs: Set<String> = [
+        "com.apple.screencaptureui",
+        "com.apple.screenshot.launcher",
+    ]
+
     // User-configurable capture settings.
     // `allowDuplicates` removed (Q7): dedup is always-on via
     // contentHash lookup in finalizeCapture. Same content merges into
@@ -529,7 +541,7 @@ public final class ClipboardService {
         guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
 
         if let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-           excludedBundleIDs.contains(bundleID) {
+           Self.systemIgnoredBundleIDs.contains(bundleID) || excludedBundleIDs.contains(bundleID) {
             return nil
         }
 
