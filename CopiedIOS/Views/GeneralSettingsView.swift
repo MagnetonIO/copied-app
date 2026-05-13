@@ -20,6 +20,7 @@ struct GeneralSettingsView: View {
     @AppStorage("trashRetentionDays") private var trashRetentionDays = 30
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(ClipboardService.self) private var clipboardService
     @State private var presentsDeleteAllConfirm = false
     @State private var presentsDeleteAllComplete = false
 
@@ -36,6 +37,9 @@ struct GeneralSettingsView: View {
         Section("History") {
             Stepper("Max History: \(maxHistorySize)",
                     value: $maxHistorySize, in: 500...50000, step: 500)
+                .onChange(of: maxHistorySize) { _, _ in
+                    clipboardService.trimHistoryNow()
+                }
             Stepper(retentionDays == -1 ? "Retention: Forever" : "Retention: \(retentionDays) days",
                     value: $retentionDays, in: -1...365, step: 1)
             Stepper("Trash: \(trashRetentionDays) days",
