@@ -1267,10 +1267,22 @@ public final class ClipboardService {
         oldest.fetchLimit = total - maxHistory
 
         if let toDelete = try? modelContext.fetch(oldest) {
+            // COP-107: capture IDs BEFORE delete so we can enqueue the CK
+            // delete-record events. Custom CKSyncEngine doesn't auto-mirror
+            // SwiftData deletes — every other hard-delete site in this file
+            // (trimByAge, purgeEmptyClippings, purgeOldTrash) calls
+            // enqueueDelete; the trim path was the lone outlier, so the cap
+            // didn't actually hold: next CK fetch re-imported the rows.
+            let deletedIDs = toDelete.map(\.clippingID)
             for clipping in toDelete {
                 modelContext.delete(clipping)
             }
             try? modelContext.save()
+            for id in deletedIDs {
+                CopiedSyncEngine.shared.enqueueDelete(
+                    recordID: CopiedSyncEngine.clippingRecordID(id)
+                )
+            }
         }
     }
 }
