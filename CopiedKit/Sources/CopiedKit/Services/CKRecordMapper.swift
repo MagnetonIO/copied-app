@@ -90,6 +90,38 @@ public enum CKRecordMapper {
         }
     }
 
+    /// Helper used by `apply(_:to:prefetchedBlobs:)` to assign one blob
+    /// field on a Clipping. Three semantic cases must be preserved
+    /// (matches the pre-COP-108 inline behavior exactly):
+    ///   1. Caller pre-read the blob off-main → assign it.
+    ///   2. Record has a CKAsset but no prefetch → fall back to a
+    ///      synchronous `Data(contentsOf:)` read (memory-mapped). Keeps
+    ///      callers that haven't been migrated to the prefetched-blobs
+    ///      path working.
+    ///   3. Record explicitly has no CKAsset for this field → clear the
+    ///      local blob (so deletes propagate).
+    /// CKAsset present but read fails → leave existing value alone.
+    private static func applyBlob(
+        record: CKRecord,
+        field: String,
+        prefetched: Data?,
+        assign: (Data?) -> Void
+    ) {
+        if let prefetched {
+            assign(prefetched)
+            return
+        }
+        if let asset = record[field] as? CKAsset {
+            if let url = asset.fileURL,
+               let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
+                assign(data)
+            }
+            // asset present but read failed → leave existing value
+        } else if record[field] == nil {
+            assign(nil)
+        }
+    }
+
     // MARK: - Clipping → CKRecord
 
     /// Populate `record` from `clipping`. If a `lastKnownRecord` exists
@@ -163,11 +195,59 @@ public enum CKRecordMapper {
         }
     }
 
+    /// Bytes pre-loaded from a CKRecord's CKAsset fileURLs on a background
+    /// queue, so the caller can pass them into `apply(...)` and avoid the
+    /// synchronous `Data(contentsOf:)` main-thread reads (COP-108).
+    ///
+    /// All three fields are optional — nil means either no asset was on
+    /// the record or the off-main prefetch couldn't read it (in which case
+    /// `apply` falls back to the synchronous read, preserving prior
+    /// behavior).
+    public struct PrefetchedBlobs: Sendable {
+        public let image: Data?
+        public let richText: Data?
+        public let html: Data?
+        public init(image: Data? = nil, richText: Data? = nil, html: Data? = nil) {
+            self.image = image
+            self.richText = richText
+            self.html = html
+        }
+    }
+
+    /// Sendable URL bundle for a single CKRecord, used to ship CKAsset
+    /// fileURLs across actor boundaries without carrying the CKRecord
+    /// itself (which is a reference type and non-Sendable in Swift 6).
+    /// Returned from `blobURLs(in:)` and consumed by off-main prefetch
+    /// loops in `CopiedSyncEngine.applyManualPullChanges`.
+    public struct BlobURLs: Sendable {
+        public let recordName: String
+        public let image: URL?
+        public let richText: URL?
+        public let html: URL?
+    }
+
+    /// Extract the CKAsset fileURLs for a Clipping CKRecord. Caller passes
+    /// the result into a background task to read the bytes off-main,
+    /// then feeds the resulting `PrefetchedBlobs` back into `apply`.
+    public static func blobURLs(in record: CKRecord) -> BlobURLs {
+        BlobURLs(
+            recordName: record.recordID.recordName,
+            image: (record[Field.imageData] as? CKAsset)?.fileURL,
+            richText: (record[Field.richTextData] as? CKAsset)?.fileURL,
+            html: (record[Field.htmlData] as? CKAsset)?.fileURL
+        )
+    }
+
     /// Apply fields from `record` onto `clipping` (in-place upsert).
     /// Caller is responsible for conflict resolution (LWW on
     /// `modifiedDate`) before invoking — this method unconditionally
     /// overwrites every field.
-    public static func apply(_ record: CKRecord, to clipping: Clipping) {
+    ///
+    /// `prefetchedBlobs` — if provided, the three blob fields use these
+    /// Data values and SKIP the synchronous `Data(contentsOf:)` disk read.
+    /// Pass nil (the default) when the caller hasn't done off-main
+    /// prefetching; the original synchronous-read path runs in that case.
+    public static func apply(_ record: CKRecord, to clipping: Clipping, prefetchedBlobs: PrefetchedBlobs? = nil) {
         clipping.contentHash = (record[Field.contentHash] as? String) ?? clipping.contentHash
         clipping.text = record[Field.text] as? String
         clipping.title = record[Field.title] as? String
@@ -199,23 +279,19 @@ public enum CKRecordMapper {
         // Load blobs from CKAsset fileURLs. CloudKit has already
         // downloaded the asset to local disk by the time the
         // .fetchedRecordZoneChanges event fires.
-        if let asset = record[Field.imageData] as? CKAsset, let url = asset.fileURL,
-           let data = try? Data(contentsOf: url) {
-            clipping.imageData = data
-        } else if record[Field.imageData] == nil {
-            clipping.imageData = nil
+        //
+        // COP-108: prefer caller-provided prefetched Data (read off-main
+        // before the upsert). Fall back to synchronous `Data(contentsOf:)`
+        // when no prefetch was supplied — keeps backward compatibility for
+        // call sites that don't yet thread prefetched blobs through.
+        applyBlob(record: record, field: Field.imageData, prefetched: prefetchedBlobs?.image) {
+            clipping.imageData = $0
         }
-        if let asset = record[Field.richTextData] as? CKAsset, let url = asset.fileURL,
-           let data = try? Data(contentsOf: url) {
-            clipping.richTextData = data
-        } else if record[Field.richTextData] == nil {
-            clipping.richTextData = nil
+        applyBlob(record: record, field: Field.richTextData, prefetched: prefetchedBlobs?.richText) {
+            clipping.richTextData = $0
         }
-        if let asset = record[Field.htmlData] as? CKAsset, let url = asset.fileURL,
-           let data = try? Data(contentsOf: url) {
-            clipping.htmlData = data
-        } else if record[Field.htmlData] == nil {
-            clipping.htmlData = nil
+        applyBlob(record: record, field: Field.htmlData, prefetched: prefetchedBlobs?.html) {
+            clipping.htmlData = $0
         }
 
         // ClipList relationship is resolved by the caller (which has

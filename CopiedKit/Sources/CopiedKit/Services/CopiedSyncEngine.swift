@@ -632,17 +632,62 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         guard let modelContainer else { return }
         let ctx = ModelContext(modelContainer)
 
-        for record in modifications {
-            let name = record.recordID.recordName
-            switch record.recordType {
-            case RecordType.clipping:
-                upsertClipping(record: record, recordName: name, ctx: ctx)
-            case RecordType.clipList:
-                upsertClipList(record: record, recordName: name, ctx: ctx)
-            default:
-                Self.profileLogger.log(
-                    "manualPull unknownType source=\(source, privacy: .public) type=\(record.recordType, privacy: .public)"
-                )
+        // COP-108: extract Clipping CKAsset URLs on main (cheap — just
+        // property accesses), then read the bytes OFF main in a detached
+        // task. Without this, every image / rich-text / HTML clipping
+        // makes the @MainActor.run block do a synchronous
+        // `Data(contentsOf:)` per blob — for a 1000-row import that's
+        // hundreds of disk reads on main, which is what users felt as
+        // popover stutter / scroll lag during "Checking…".
+        let blobURLs: [CKRecordMapper.BlobURLs] = modifications
+            .filter { $0.recordType == RecordType.clipping }
+            .map { CKRecordMapper.blobURLs(in: $0) }
+        let prefetched: [String: CKRecordMapper.PrefetchedBlobs] =
+            await Task.detached(priority: .utility) {
+                var out: [String: CKRecordMapper.PrefetchedBlobs] = [:]
+                for u in blobURLs {
+                    let img = u.image.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    let rtf = u.richText.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    let htm = u.html.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    if img != nil || rtf != nil || htm != nil {
+                        out[u.recordName] = CKRecordMapper.PrefetchedBlobs(
+                            image: img, richText: rtf, html: htm
+                        )
+                    }
+                }
+                return out
+            }.value
+
+        // Chunk the main-actor upsert loop with `await Task.yield()` between
+        // chunks so scroll / keystroke events drain between bursts. For
+        // small imports (<= chunkSize) this is functionally identical to
+        // the prior single-pass loop.
+        let chunkSize = 50
+        var idx = 0
+        while idx < modifications.count {
+            let end = min(idx + chunkSize, modifications.count)
+            for i in idx..<end {
+                let record = modifications[i]
+                let name = record.recordID.recordName
+                switch record.recordType {
+                case RecordType.clipping:
+                    upsertClipping(
+                        record: record,
+                        recordName: name,
+                        ctx: ctx,
+                        prefetchedBlobs: prefetched[name]
+                    )
+                case RecordType.clipList:
+                    upsertClipList(record: record, recordName: name, ctx: ctx)
+                default:
+                    Self.profileLogger.log(
+                        "manualPull unknownType source=\(source, privacy: .public) type=\(record.recordType, privacy: .public)"
+                    )
+                }
+            }
+            idx = end
+            if idx < modifications.count {
+                await Task.yield()
             }
         }
 
@@ -1067,6 +1112,31 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     ) async {
         guard let modelContainer else { return }
 
+        // COP-108: extract CKAsset URLs first (cheap), then read blob
+        // bytes off-main BEFORE we hop to the main actor. Without this,
+        // the @MainActor.run block did synchronous `Data(contentsOf:)`
+        // per inbound image / rich-text / HTML clipping — popover stutter
+        // during "Checking…".
+        let blobURLs: [CKRecordMapper.BlobURLs] = event.modifications
+            .map(\.record)
+            .filter { $0.recordType == RecordType.clipping }
+            .map { CKRecordMapper.blobURLs(in: $0) }
+        let prefetched: [String: CKRecordMapper.PrefetchedBlobs] =
+            await Task.detached(priority: .utility) {
+                var out: [String: CKRecordMapper.PrefetchedBlobs] = [:]
+                for u in blobURLs {
+                    let img = u.image.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    let rtf = u.richText.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    let htm = u.html.flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+                    if img != nil || rtf != nil || htm != nil {
+                        out[u.recordName] = CKRecordMapper.PrefetchedBlobs(
+                            image: img, richText: rtf, html: htm
+                        )
+                    }
+                }
+                return out
+            }.value
+
         // Hop onto main actor to mutate SwiftData — ModelContext ops
         // on @Model types require main-actor or per-context isolation.
         // We use a dedicated context created on main so we don't
@@ -1085,7 +1155,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
                 switch record.recordType {
                 case RecordType.clipping:
-                    upsertClipping(record: record, recordName: recordName, ctx: ctx)
+                    upsertClipping(
+                        record: record,
+                        recordName: recordName,
+                        ctx: ctx,
+                        prefetchedBlobs: prefetched[recordName]
+                    )
                 case RecordType.clipList:
                     upsertClipList(record: record, recordName: recordName, ctx: ctx)
                 default:
@@ -1260,7 +1335,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     // MARK: - Upsert helpers (main-actor bound; called inside MainActor.run)
 
     @MainActor
-    private func upsertClipping(record: CKRecord, recordName: String, ctx: ModelContext) {
+    private func upsertClipping(
+        record: CKRecord,
+        recordName: String,
+        ctx: ModelContext,
+        prefetchedBlobs: CKRecordMapper.PrefetchedBlobs? = nil
+    ) {
         // Defense in depth: refuse to create a local row from an empty
         // CKRecord. If a peer device somehow uploads a shell (pre-purge
         // seed, half-captured mutation, etc.) we drop it on receive so
@@ -1373,7 +1453,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 Self.profileLogger.log(
                     "upsertClipping branch=remoteTrashWins id=\(recordName, privacy: .public)"
                 )
-                CKRecordMapper.apply(record, to: existing)
+                CKRecordMapper.apply(record, to: existing, prefetchedBlobs: prefetchedBlobs)
                 resolveListReference(
                     for: existing, record: record, recordName: recordName, ctx: ctx
                 )
@@ -1399,7 +1479,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
                 Self.profileLogger.log(
                     "upsertClipping branch=preserveEarliestTrashDate id=\(recordName, privacy: .public) localDelete=\(String(describing: localDelete), privacy: .public) incomingDelete=\(String(describing: incomingDelete), privacy: .public)"
                 )
-                CKRecordMapper.apply(record, to: existing)
+                CKRecordMapper.apply(record, to: existing, prefetchedBlobs: prefetchedBlobs)
                 existing.deleteDate = localDelete
                 resolveListReference(
                     for: existing, record: record, recordName: recordName, ctx: ctx
@@ -1420,7 +1500,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             Self.profileLogger.log(
                 "upsertClipping branch=applyRemote id=\(recordName, privacy: .public)"
             )
-            CKRecordMapper.apply(record, to: existing)
+            CKRecordMapper.apply(record, to: existing, prefetchedBlobs: prefetchedBlobs)
             resolveListReference(
                 for: existing, record: record, recordName: recordName, ctx: ctx
             )
@@ -1431,7 +1511,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             let clipping = Clipping()
             clipping.clippingID = recordName
             ctx.insert(clipping)
-            CKRecordMapper.apply(record, to: clipping)
+            CKRecordMapper.apply(record, to: clipping, prefetchedBlobs: prefetchedBlobs)
             resolveListReference(
                 for: clipping, record: record, recordName: recordName, ctx: ctx
             )
