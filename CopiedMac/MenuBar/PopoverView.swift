@@ -3,6 +3,11 @@ import SwiftData
 import CopiedKit
 import OSLog
 
+private struct PopoverFilterSnapshot {
+    var clippings: [Clipping]
+    var ranges: [String: [Range<String.Index>]]
+}
+
 struct PopoverView: View {
     private let syncProfileLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "Copied",
@@ -18,12 +23,6 @@ struct PopoverView: View {
 
     /// Sidebar-style list roster for the popover filter menu.
     @Query(sort: \ClipList.sortOrder) private var userLists: [ClipList]
-
-    /// Live count of active (non-trashed) clippings, surfaced in the status
-    /// bar. SwiftData `@Query` re-evaluates the predicate on changes so the
-    /// number updates the moment the user copies / trashes / restores.
-    @Query(filter: #Predicate<Clipping> { $0.deleteDate == nil })
-    private var activeClippings: [Clipping]
 
     @AppStorage("pasteAndClose") private var pasteAndClose = true
 
@@ -58,6 +57,10 @@ struct PopoverView: View {
     @State private var editingClipID: String?
     @State private var editText: String = ""
     @State private var previewClipID: String?
+    @State private var previewImageClipID: String?
+    @State private var previewImage: NSImage?
+    @State private var previewImageDimensions: String?
+    @State private var previewImageTask: Task<Void, Never>?
     @FocusState private var searchFocused: Bool
 
     /// Whether more rows can be materialized without hitting the cap. Paging
@@ -81,6 +84,8 @@ struct PopoverView: View {
     @State private var prefetchPendingIndices: Set<Int> = []
     @State private var prefetchDebounceTask: Task<Void, Never>?
     @State private var freshAllClippings: [Clipping] = []
+    @State private var filteredSnapshot = PopoverFilterSnapshot(clippings: [], ranges: [:])
+    @State private var activeClippingCount: Int = 0
     /// Drives the "+ New List…" alert raised from `listFilterMenu`. The
     /// popover sits in a MenuBarExtra window where opening a separate
     /// SwiftUI sheet collapses the popover, so we use an inline `.alert`
@@ -94,8 +99,8 @@ struct PopoverView: View {
     /// gesture. nil means the alert came from the header `listFilterMenu`.
     @State private var pendingClippingForListAssignment: Clipping?
     /// Coalesce duplicate `refreshFreshClippings()` triggers — `.onAppear`,
-    /// scenePhase, and `localClippingsRevision` can fire within ~50 ms of
-    /// each other on popover reopen. Skip refresh if one ran recently
+    /// scenePhase, and local mutation/capture ticks can fire within ~50 ms
+    /// of each other on popover reopen. Skip refresh if one ran recently
     /// unless the caller forces it (local edit paths).
     @State private var lastRefreshAt: Date = .distantPast
 
@@ -126,7 +131,7 @@ struct PopoverView: View {
     @MainActor
     private func refreshFreshClippings(force: Bool = false) {
         // Coalesce duplicate triggers within 100 ms (e.g. .onAppear +
-        // scenePhase + localClippingsRevision all firing on reopen).
+        // scenePhase + local mutation/capture ticks all firing on reopen).
         // Local mutations pass force:true to bypass.
         if !force, Date().timeIntervalSince(lastRefreshAt) < 0.1 { return }
         lastRefreshAt = Date()
@@ -150,7 +155,15 @@ struct PopoverView: View {
 
         let pinnedRows = (try? ctx.fetch(pinned)) ?? []
         let recentRows = (try? ctx.fetch(recent)) ?? []
-        freshAllClippings = pinnedRows + recentRows
+        let rows = pinnedRows + recentRows
+
+        let count = FetchDescriptor<Clipping>(
+            predicate: #Predicate<Clipping> { $0.deleteDate == nil }
+        )
+        activeClippingCount = (try? ctx.fetchCount(count)) ?? rows.count
+
+        freshAllClippings = rows
+        rebuildFilteredSnapshot(from: rows)
     }
 
     /// Queue a prefetch around `index` for a batched pass ~100 ms later.
@@ -171,11 +184,13 @@ struct PopoverView: View {
         }
     }
 
-    /// Filter/sort result computed from `freshAllClippings`, which is fetched
-    /// via a new ModelContext on every sync/local-mutation signal so the
-    /// popover reflects the same dataset as the main window.
-    private var filteredAndRanges: (clippings: [Clipping], ranges: [String: [Range<String.Index>]]) {
-        var result = freshAllClippings
+    /// Rebuild the search/filter snapshot only when its inputs change.
+    /// Keeping the result in state avoids recomputing fuzzy matches once for
+    /// `filtered`, again for `matchRanges`, and again per row while SwiftUI
+    /// diffs the list.
+    @MainActor
+    private func rebuildFilteredSnapshot(from source: [Clipping]? = nil) {
+        var result = source ?? freshAllClippings
 
         if let kind = appState.filterKind {
             result = result.filter { $0.contentKind == kind }
@@ -240,11 +255,14 @@ struct PopoverView: View {
             result = pinned + unpinned
         }
 
-        return (result, ranges)
+        filteredSnapshot = PopoverFilterSnapshot(clippings: result, ranges: ranges)
+        if selectedIndex >= result.count {
+            selectedIndex = max(0, result.count - 1)
+        }
     }
 
-    private var filtered: [Clipping] { filteredAndRanges.clippings }
-    private var matchRanges: [String: [Range<String.Index>]] { filteredAndRanges.ranges }
+    private var filtered: [Clipping] { filteredSnapshot.clippings }
+    private var matchRanges: [String: [Range<String.Index>]] { filteredSnapshot.ranges }
 
     var body: some View {
         let _ = syncTicker.tick
@@ -385,10 +403,23 @@ struct PopoverView: View {
             }
         }
         .onChange(of: searchDebounced) { _, newValue in
+            rebuildFilteredSnapshot()
             if newValue.isEmpty && pendingTickRefresh {
                 pendingTickRefresh = false
                 refreshFreshClippings(force: true)
             }
+        }
+        .onChange(of: appState.filterKind) { _, _ in
+            rebuildFilteredSnapshot()
+        }
+        .onChange(of: appState.popoverListFilterID) { _, _ in
+            rebuildFilteredSnapshot()
+        }
+        .onChange(of: clipboardService.lastCapturedDate) { _, _ in
+            refreshFreshClippings(force: true)
+        }
+        .onChange(of: previewClipID) { _, newValue in
+            loadPreviewImage(for: newValue)
         }
         .onChange(of: localMutationTick) { _, _ in
             // Force-bypass the 100 ms coalesce — local edits (favorite,
@@ -400,6 +431,7 @@ struct PopoverView: View {
             // (rare but possible). Clamp the rendered window so the new
             // ceiling takes effect without waiting for a reopen.
             visibleCount = min(visibleCount, newValue)
+            refreshFreshClippings(force: true)
         }
         // Drop in-memory caches when the popover loses key window status
         // (popover dismissed). scenePhase inactive doesn't fire reliably for
@@ -911,6 +943,7 @@ struct PopoverView: View {
                         clipping.title = editText
                         clipping.persist()
                         editingClipID = nil
+                        bumpLocalMutationTick()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -919,6 +952,7 @@ struct PopoverView: View {
                         clipping.text = editText
                         clipping.persist()
                         editingClipID = nil
+                        bumpLocalMutationTick()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -947,24 +981,25 @@ struct PopoverView: View {
                     .ignoresSafeArea()
                     .onTapGesture { previewClipID = nil }
 
-                if clip.contentKind == .image,
-                   let data = ClipboardService.readBlob(
-                       in: SharedData.container,
-                       clippingID: clip.clippingID,
-                       key: \Clipping.imageData
-                   ),
-                   let nsImage = NSImage(data: data) {
+                if clip.contentKind == .image {
                     // Image preview
                     VStack(spacing: 12) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 400)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .shadow(radius: 10)
+                        if previewImageClipID == clip.clippingID,
+                           let previewImage {
+                            Image(nsImage: previewImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxHeight: 400)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .shadow(radius: 10)
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 240, height: 180)
+                        }
 
-                        if clip.imageWidth > 0 {
-                            Text("\(Int(clip.imageWidth)) × \(Int(clip.imageHeight))")
+                        if let previewImageDimensions {
+                            Text(previewImageDimensions)
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.7))
                         }
@@ -1046,6 +1081,44 @@ struct PopoverView: View {
                 }
             }
             .transition(.opacity)
+        }
+    }
+
+    @MainActor
+    private func loadPreviewImage(for clipID: String?) {
+        previewImageTask?.cancel()
+        previewImageTask = nil
+        previewImageClipID = nil
+        previewImage = nil
+        previewImageDimensions = nil
+
+        guard let clipID,
+              let clip = filtered.first(where: { $0.clippingID == clipID }),
+              clip.contentKind == .image else {
+            return
+        }
+
+        previewImageClipID = clipID
+        if clip.imageWidth > 0 {
+            previewImageDimensions = "\(Int(clip.imageWidth)) × \(Int(clip.imageHeight))"
+        }
+
+        let container = SharedData.container
+        previewImageTask = Task { @MainActor in
+            let image = await Task.detached(priority: .userInitiated) {
+                let data = ClipboardService.readBlob(
+                    in: container,
+                    clippingID: clipID,
+                    key: \Clipping.imageData
+                )
+                return await ThumbnailCache.shared.decodeThumbnail(
+                    for: clipID,
+                    data: data,
+                    maxSize: 800
+                )
+            }.value
+            guard !Task.isCancelled, previewClipID == clipID else { return }
+            previewImage = image
         }
     }
 
@@ -1140,7 +1213,7 @@ struct PopoverView: View {
             // Live clippings count — informational, mirrors the iOS root's
             // "Copied (N)" treatment so users have a single glance metric
             // for "how full is my history?" without opening Settings.
-            Text("\(activeClippings.count) saved")
+            Text("\(activeClippingCount) saved")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)

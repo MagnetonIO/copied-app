@@ -136,6 +136,45 @@ struct ClipboardServiceTests {
         #expect(clip.imageData == png)
     }
 
+    @Test("Screenshot UI ignore does not drop text or URL copies")
+    func screenshotUIIgnoreAllowsExplicitCopies() {
+        let screenshotBundleID = "com.apple.screencaptureui"
+
+        #expect(ClipboardService.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: screenshotBundleID,
+            pasteboardTypes: [NSPasteboard.PasteboardType.png.rawValue],
+            text: nil,
+            urlString: nil
+        ))
+        #expect(!ClipboardService.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: screenshotBundleID,
+            pasteboardTypes: [NSPasteboard.PasteboardType.string.rawValue],
+            text: "latest copy",
+            urlString: nil
+        ))
+        #expect(!ClipboardService.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: screenshotBundleID,
+            pasteboardTypes: [NSPasteboard.PasteboardType.URL.rawValue],
+            text: nil,
+            urlString: "https://example.com"
+        ))
+        #expect(!ClipboardService.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: screenshotBundleID,
+            pasteboardTypes: [
+                NSPasteboard.PasteboardType.png.rawValue,
+                NSPasteboard.PasteboardType.html.rawValue,
+            ],
+            text: nil,
+            urlString: nil
+        ))
+        #expect(!ClipboardService.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: "com.apple.Preview",
+            pasteboardTypes: [NSPasteboard.PasteboardType.png.rawValue],
+            text: nil,
+            urlString: nil
+        ))
+    }
+
     @Test("Equal modified remote with same content is redundant")
     func equalModifiedSameContentRemoteIsRedundant() {
         let date = Date()

@@ -186,6 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Quit) — the standard Mac convention for menu-bar utilities.
     private var menuBarRightClickMonitor: Any?
     private var syncBackstopTimer: Timer?
+    private let syncBackstopFastInterval: TimeInterval = 5
+    private let syncBackstopIdleInterval: TimeInterval = 30
+    private let syncBackstopFastGrace: TimeInterval = 90
+    private var lastInteractiveSyncSignalAt: Date = Date()
+    private var lastBackstopManualPullAt: Date = .distantPast
     /// Listens for OS memory-pressure events. On `.warning` or `.critical`,
     /// drops in-memory caches (thumbnails, app icons, SwiftData row cache).
     /// Without this, the menu-bar app's RSS grows unbounded as the user
@@ -277,7 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSApplication.didBecomeActiveNotification,
             object: nil, queue: .main
         ) { _ in
-            self.syncProfileLogger.log("trigger didBecomeActive")
+            Task { @MainActor in
+                self.noteInteractiveSyncSignal()
+                self.syncProfileLogger.log("trigger didBecomeActive")
+            }
             Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.didBecomeActive") }
         }
         // 1b. Window-key transitions are the strongest concrete signal we
@@ -298,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     ? "mac.mainWindow.didBecomeKey"
                     : "mac.window.didBecomeKey"
 
+                self.noteInteractiveSyncSignal()
                 self.syncProfileLogger.log(
                     "trigger windowDidBecomeKey source=\(source, privacy: .public) class=\(className, privacy: .public) title=\(title, privacy: .public)"
                 )
@@ -309,21 +318,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { _ in
-            self.syncProfileLogger.log("trigger didWake")
+            Task { @MainActor in
+                self.noteInteractiveSyncSignal()
+                self.syncProfileLogger.log("trigger didWake")
+            }
             Task.detached { await CopiedSyncEngine.shared.fetchChanges(source: "mac.didWake") }
         }
-        // 3. App-lifetime backstop. This is intentionally NOT gated on
-        // NSApp.isActive / scenePhase because menu bar interaction and
-        // Scene activation have proven too brittle to trust for sync
-        // correctness.
+        // 3. App-lifetime backstop. Poll fast around visible user
+        // interaction, then fall back to a slower idle cadence. The
+        // timer still runs for the whole app lifetime so correctness
+        // does not depend on a particular SwiftUI scene staying mounted.
         syncBackstopTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
-            self.syncProfileLogger.log("trigger appTimer")
-            // Use manualInboundFetch — `engine.fetchChanges()` is a no-op
-            // on this path because macOS withholds CloudKit silent pushes
-            // from the background menu-bar app. The manual fetch issues a
-            // real `CKFetchRecordZoneChangesOperation` against our own
-            // change token. Cooldown gate (3s) lives inside the engine.
-            Task.detached { await CopiedSyncEngine.shared.manualInboundFetch(source: "mac.appTimer") }
+            Task { @MainActor in self.runSyncBackstopIfDue() }
         }
         if let syncBackstopTimer {
             RunLoop.main.add(syncBackstopTimer, forMode: .common)
@@ -464,6 +470,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         #endif
+    }
+
+    private func noteInteractiveSyncSignal() {
+        lastInteractiveSyncSignalAt = Date()
+    }
+
+    private func runSyncBackstopIfDue() {
+        let now = Date()
+        let recentlyInteractive = now.timeIntervalSince(lastInteractiveSyncSignalAt) < syncBackstopFastGrace
+        let fastCadence = NSApp.isActive || appState.popoverIsVisible || recentlyInteractive
+        let interval = fastCadence ? syncBackstopFastInterval : syncBackstopIdleInterval
+
+        guard now.timeIntervalSince(lastBackstopManualPullAt) >= interval else { return }
+        lastBackstopManualPullAt = now
+
+        let cadence = fastCadence ? "fast" : "idle"
+        syncProfileLogger.log("trigger appTimer cadence=\(cadence, privacy: .public)")
+        // Use manualInboundFetch — `engine.fetchChanges()` is a no-op
+        // on this path because macOS withholds CloudKit silent pushes
+        // from the background menu-bar app. The manual fetch issues a
+        // real `CKFetchRecordZoneChangesOperation` against our own
+        // change token. Cooldown gate lives inside the engine.
+        Task.detached { await CopiedSyncEngine.shared.manualInboundFetch(source: "mac.appTimer.\(cadence)") }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

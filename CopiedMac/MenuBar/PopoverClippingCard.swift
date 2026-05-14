@@ -353,6 +353,7 @@ struct PopoverClippingCard: View {
             Button {
                 clipping.isFavorite.toggle()
                 clipping.persist()
+                onLocalMutation?()
             } label: {
                 Image(systemName: clipping.isFavorite ? "star.fill" : "star")
                     .font(.system(size: 13, weight: .medium))
@@ -370,6 +371,7 @@ struct PopoverClippingCard: View {
 
             Button {
                 clipping.moveToTrash()
+                onLocalMutation?()
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 13, weight: .medium))

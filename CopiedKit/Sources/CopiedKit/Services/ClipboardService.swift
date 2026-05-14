@@ -71,6 +71,15 @@ public final class ClipboardService {
         "com.apple.screenshot.launcher",
     ]
 
+    #if canImport(AppKit)
+    private static let imagePasteboardTypeNames: Set<String> = [
+        NSPasteboard.PasteboardType.png.rawValue,
+        NSPasteboard.PasteboardType.tiff.rawValue,
+        "Apple PNG pasteboard type",
+        "NeXT TIFF v4.0 pasteboard type",
+    ]
+    #endif
+
     // User-configurable capture settings.
     // `allowDuplicates` removed (Q7): dedup is always-on via
     // contentHash lookup in finalizeCapture. Same content merges into
@@ -156,7 +165,7 @@ public final class ClipboardService {
     /// ThumbnailCache, CKAsset temp file, etc.). Use for `imageData`,
     /// `richTextData`, `htmlData` reads from view code; SwiftUI `@Query`
     /// keeps reading scalars off the shared mainContext as before.
-    public static func readBlob(
+    nonisolated public static func readBlob(
         in container: ModelContainer,
         clippingID: String,
         key: KeyPath<Clipping, Data?>
@@ -544,14 +553,24 @@ public final class ClipboardService {
         guard modelContext != nil else { return nil }
         guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
 
-        if let bundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-           Self.systemIgnoredBundleIDs.contains(bundleID) || excludedBundleIDs.contains(bundleID) {
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let frontmostBundleID = frontApp?.bundleIdentifier
+        if let bundleID = frontmostBundleID, excludedBundleIDs.contains(bundleID) {
             return nil
         }
 
         let types = (items.first?.types ?? []).map(\.rawValue)
         let text = pasteboard.string(forType: .string).flatMap { $0.isEmpty ? nil : $0 }
         let urlString = pasteboard.string(forType: .URL).flatMap { $0.isEmpty ? nil : $0 }
+        if Self.shouldSkipSystemIgnoredPasteboardBump(
+            frontmostBundleID: frontmostBundleID,
+            pasteboardTypes: types,
+            text: text,
+            urlString: urlString
+        ) {
+            return nil
+        }
+
         let pngData = captureImages && types.contains(NSPasteboard.PasteboardType.png.rawValue)
             ? pasteboard.data(forType: .png)
             : nil
@@ -564,7 +583,6 @@ public final class ClipboardService {
         let htmlData = pasteboard.data(forType: .html)
         let fileURLs = candidateFileURLs(from: pasteboard)
 
-        let frontApp = NSWorkspace.shared.frontmostApplication
         return CaptureInput(
             addDate: Date(),
             types: types,
@@ -576,9 +594,25 @@ public final class ClipboardService {
             htmlData: htmlData,
             candidateFileURLs: fileURLs,
             appName: frontApp?.localizedName,
-            appBundleID: frontApp?.bundleIdentifier,
+            appBundleID: frontmostBundleID,
             deviceName: Host.current().localizedName ?? "Mac"
         )
+    }
+
+    static func shouldSkipSystemIgnoredPasteboardBump(
+        frontmostBundleID: String?,
+        pasteboardTypes: [String],
+        text: String?,
+        urlString: String?
+    ) -> Bool {
+        guard let bundleID = frontmostBundleID,
+              systemIgnoredBundleIDs.contains(bundleID) else {
+            return false
+        }
+        guard text == nil, urlString == nil else { return false }
+
+        let typeNames = Set(pasteboardTypes)
+        return !typeNames.isEmpty && typeNames.isSubset(of: imagePasteboardTypeNames)
     }
 
     /// Collects every file URL the pasteboard exposes across the three discovery paths
