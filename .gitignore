@@ -7,8 +7,14 @@ images/
 docs/
 # Xcode
 xcuserdata/
+*.xcuserstate
 *.xcscmblueprint
 *.xccheckout
+*.xcactivitylog
+*.xcresult
+*.dSYM
+*.dSYM.zip
+*.ipa
 
 # Profile data
 *.profraw
