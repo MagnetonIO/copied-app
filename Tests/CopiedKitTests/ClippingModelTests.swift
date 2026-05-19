@@ -127,6 +127,34 @@ struct ClippingModelTests {
         #expect(results.first?.text == "active")
     }
 
+    @Test("External open support chooses viewer actions and file extensions")
+    func externalOpenSupport() {
+        let text = Clipping(text: "Plain note")
+        #expect(ClippingExternalOpenSupport.actionTitle(for: text) == "Open in Default Viewer")
+        #expect(ClippingExternalOpenSupport.fileExtension(forLanguage: nil) == "txt")
+
+        let code = Clipping(text: "let value = 1")
+        code.isCode = true
+        code.detectedLanguage = "swift"
+        #expect(ClippingExternalOpenSupport.actionTitle(for: code) == "Open in Editor")
+        #expect(ClippingExternalOpenSupport.fileExtension(forLanguage: code.detectedLanguage) == "swift")
+
+        let markdown = Clipping(text: "# Title")
+        markdown.isCode = true
+        markdown.detectedLanguage = "markdown"
+        #expect(markdown.contentKind == .markdown)
+        #expect(ClippingExternalOpenSupport.fileExtension(forLanguage: markdown.detectedLanguage) == "md")
+
+        let image = Clipping()
+        image.hasImage = true
+        image.imageFormat = "jpeg"
+        #expect(ClippingExternalOpenSupport.actionTitle(for: image) == "Open in Default Viewer")
+        #expect(ClippingExternalOpenSupport.imageFileExtension(forFormat: image.imageFormat) == "jpg")
+
+        let link = Clipping(url: "https://example.com")
+        #expect(ClippingExternalOpenSupport.actionTitle(for: link) == "Open Link")
+    }
+
     @Test("Sort by addDate descending")
     func sortByDate() throws {
         let ctx = try makeContext()

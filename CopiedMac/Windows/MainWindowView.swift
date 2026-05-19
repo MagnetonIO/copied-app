@@ -61,6 +61,7 @@ struct MainWindowView: View {
             ClippingListBySelection(
                 selection: appState.sidebarSelection,
                 searchText: searchText,
+                filterKind: appState.filterKind,
                 selectedClippings: $selectedClippings,
                 onRequestNewList: requestNewListForAssignment
             )
@@ -68,6 +69,9 @@ struct MainWindowView: View {
                 selectedClippings.removeAll()
             }
             .onChange(of: searchText) { _, _ in
+                selectedClippings.removeAll()
+            }
+            .onChange(of: appState.filterKind) { _, _ in
                 selectedClippings.removeAll()
             }
             .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 500)
@@ -192,20 +196,6 @@ struct MainWindowView: View {
                 isNamingNewList = true
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    newListNameDraft = ""
-                    isNamingNewList = true
-                } label: {
-                    // Label (not bare Image) so View → Customize Toolbar's
-                    // "Icon and Text" mode has a string to render. `.help`
-                    // adds the hover tooltip users expect on Mac toolbars.
-                    Label("New List", systemImage: "folder.badge.plus")
-                }
-                .help("New List")
-            }
-        }
         .alert("New List", isPresented: $isNamingNewList) {
             TextField("List name", text: $newListNameDraft)
             Button("Create") { createList(named: newListNameDraft) }
@@ -281,6 +271,12 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            newListToolbarButton
+            listFilterMenu
+            contentFilterMenu
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
             HStack(spacing: 4) {
                 Circle()
@@ -296,6 +292,122 @@ struct MainWindowView: View {
             } label: {
                 Image(systemName: clipboardService.isMonitoring ? "pause.circle" : "play.circle")
             }
+        }
+    }
+
+    private var newListToolbarButton: some View {
+        Button {
+            newListNameDraft = ""
+            isNamingNewList = true
+        } label: {
+            Label("New List", systemImage: "folder.badge.plus")
+        }
+        .help("New List")
+    }
+
+    private var listFilterMenu: some View {
+        Menu {
+            Button {
+                newListNameDraft = ""
+                isNamingNewList = true
+            } label: {
+                Label("New List…", systemImage: "folder.badge.plus")
+            }
+
+            Divider()
+
+            sidebarSelectionButton(title: "All Clippings", systemImage: "tray.full", item: .all)
+            sidebarSelectionButton(title: "Favorites", systemImage: "star", item: .favorites)
+            sidebarSelectionButton(title: "Trash", systemImage: "trash", item: .trash)
+
+            if !lists.isEmpty {
+                Divider()
+                ForEach(lists) { list in
+                    sidebarSelectionButton(
+                        title: list.name,
+                        systemImage: "folder",
+                        item: .list(list)
+                    )
+                }
+            }
+        } label: {
+            Image(systemName: listFilterIcon)
+        }
+        .help("Library Filter")
+    }
+
+    private var contentFilterMenu: some View {
+        Menu {
+            Button {
+                appState.filterKind = nil
+            } label: {
+                HStack {
+                    Text("All Types")
+                    if appState.filterKind == nil { Image(systemName: "checkmark") }
+                }
+            }
+
+            Divider()
+
+            ForEach(ClippingExternalOpenSupport.filterKinds, id: \.self) { kind in
+                Button {
+                    appState.filterKind = kind
+                } label: {
+                    HStack {
+                        Text(contentKindTitle(kind))
+                        if appState.filterKind == kind { Image(systemName: "checkmark") }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: appState.filterKind != nil
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle")
+        }
+        .help("Type Filter")
+    }
+
+    @ViewBuilder
+    private func sidebarSelectionButton(
+        title: String,
+        systemImage: String,
+        item: SidebarItem
+    ) -> some View {
+        Button {
+            appState.sidebarSelection = item
+        } label: {
+            HStack {
+                Label(title, systemImage: systemImage)
+                if sidebarSelectionMatches(item) { Image(systemName: "checkmark") }
+            }
+        }
+    }
+
+    private var listFilterIcon: String {
+        switch appState.sidebarSelection {
+        case .all: return "tray.full"
+        case .favorites: return "star"
+        case .trash: return "trash"
+        case .list: return "folder"
+        }
+    }
+
+    private func sidebarSelectionMatches(_ item: SidebarItem) -> Bool {
+        switch (appState.sidebarSelection, item) {
+        case (.all, .all), (.favorites, .favorites), (.trash, .trash):
+            return true
+        case (.list(let selected), .list(let candidate)):
+            return selected.listID == candidate.listID
+        default:
+            return false
+        }
+    }
+
+    private func contentKindTitle(_ kind: ContentKind) -> String {
+        switch kind {
+        case .richText: return "Rich Text"
+        case .html: return "HTML"
+        default: return kind.rawValue.capitalized
         }
     }
 
@@ -350,11 +462,17 @@ private extension Array where Element == Clipping {
         let unpinned = self.filter { !$0.isPinned }
         return pinned + unpinned
     }
+
+    func matchingContentKind(_ kind: ContentKind?) -> [Clipping] {
+        guard let kind else { return self }
+        return filter { $0.contentKind == kind }
+    }
 }
 
 struct ClippingListBySelection: View {
     let selection: SidebarItem
     let searchText: String
+    let filterKind: ContentKind?
     @Binding var selectedClippings: Set<Clipping>
     /// Forwarded into each child's `clippingContextMenuContent` so the
     /// per-row "Add to List → + New List…" path can trigger the parent
@@ -366,18 +484,21 @@ struct ClippingListBySelection: View {
         case .all:
             AllClippingsList(
                 searchText: searchText,
+                filterKind: filterKind,
                 selectedClippings: $selectedClippings,
                 onRequestNewList: onRequestNewList
             )
         case .favorites:
             FavoritesClippingsList(
                 searchText: searchText,
+                filterKind: filterKind,
                 selectedClippings: $selectedClippings,
                 onRequestNewList: onRequestNewList
             )
         case .trash:
             TrashClippingsList(
                 searchText: searchText,
+                filterKind: filterKind,
                 selectedClippings: $selectedClippings,
                 onRequestNewList: onRequestNewList
             )
@@ -385,6 +506,7 @@ struct ClippingListBySelection: View {
             ListClippingsList(
                 list: list,
                 searchText: searchText,
+                filterKind: filterKind,
                 selectedClippings: $selectedClippings,
                 onRequestNewList: onRequestNewList
             )
@@ -396,6 +518,7 @@ struct ClippingListBySelection: View {
 
 private struct AllClippingsList: View {
     let searchText: String
+    let filterKind: ContentKind?
     @Binding var selectedClippings: Set<Clipping>
     let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
@@ -423,9 +546,10 @@ private struct AllClippingsList: View {
             $0.title?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.url?.localizedCaseInsensitiveContains(searchText) == true
         }
-        let filtered = searched.pinnedFirst
+        let filtered = searched.matchingContentKind(filterKind).pinnedFirst
         return List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
+                .handlesClippingRowClicks(clipping, selection: $selectedClippings)
                 .tag(clipping)
                 .contextMenu {
                     clippingContextMenuContent(
@@ -465,6 +589,7 @@ private struct AllClippingsList: View {
 
 private struct FavoritesClippingsList: View {
     let searchText: String
+    let filterKind: ContentKind?
     @Binding var selectedClippings: Set<Clipping>
     let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
@@ -484,9 +609,10 @@ private struct FavoritesClippingsList: View {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true ||
             $0.title?.localizedCaseInsensitiveContains(searchText) == true
         }
-        let filtered = searched.pinnedFirst
+        let filtered = searched.matchingContentKind(filterKind).pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
+                .handlesClippingRowClicks(clipping, selection: $selectedClippings)
                 .tag(clipping)
                 .contextMenu {
                     clippingContextMenuContent(
@@ -527,6 +653,7 @@ private struct FavoritesClippingsList: View {
 
 private struct TrashClippingsList: View {
     let searchText: String
+    let filterKind: ContentKind?
     @Binding var selectedClippings: Set<Clipping>
     let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
@@ -545,7 +672,7 @@ private struct TrashClippingsList: View {
         let searched = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
-        let filtered = searched.pinnedFirst
+        let filtered = searched.matchingContentKind(filterKind).pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             HStack {
                 ClippingRow(clipping: clipping)
@@ -556,6 +683,7 @@ private struct TrashClippingsList: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
+            .handlesClippingRowClicks(clipping, selection: $selectedClippings)
             .tag(clipping)
             .contextMenu {
                 clippingContextMenuContent(
@@ -604,6 +732,7 @@ private struct TrashClippingsList: View {
 private struct ListClippingsList: View {
     let list: ClipList
     let searchText: String
+    let filterKind: ContentKind?
     @Binding var selectedClippings: Set<Clipping>
     let onRequestNewList: (Clipping) -> Void
     @Environment(\.modelContext) private var modelContext
@@ -615,11 +744,13 @@ private struct ListClippingsList: View {
     init(
         list: ClipList,
         searchText: String,
+        filterKind: ContentKind?,
         selectedClippings: Binding<Set<Clipping>>,
         onRequestNewList: @escaping (Clipping) -> Void
     ) {
         self.list = list
         self.searchText = searchText
+        self.filterKind = filterKind
         self._selectedClippings = selectedClippings
         self.onRequestNewList = onRequestNewList
 
@@ -636,9 +767,10 @@ private struct ListClippingsList: View {
         let searched = searchText.isEmpty ? clippings : clippings.filter {
             $0.text?.localizedCaseInsensitiveContains(searchText) == true
         }
-        let filtered = searched.pinnedFirst
+        let filtered = searched.matchingContentKind(filterKind).pinnedFirst
         List(filtered, selection: $selectedClippings) { clipping in
             ClippingRow(clipping: clipping)
+                .handlesClippingRowClicks(clipping, selection: $selectedClippings)
                 .tag(clipping)
                 .contextMenu {
                     clippingContextMenuContent(
@@ -767,11 +899,11 @@ private func clippingContextMenuContent(
             clipping.markUsed()
         }
     }
-    if clipping.contentKind == .link,
-       let urlStr = clipping.url,
-       let url = URL(string: urlStr) {
+    if let openTitle = ClippingExternalOpenSupport.actionTitle(for: clipping) {
         Divider()
-        Button("Open Link") { NSWorkspace.shared.open(url) }
+        Button(openTitle) {
+            _ = ClippingExternalOpenSupport.open(clipping, in: SharedData.container)
+        }
     }
     Divider()
     Button(clipping.isFavorite ? "Unfavorite" : "Favorite") {
@@ -925,6 +1057,30 @@ private func selectAllShortcut(
     .opacity(0)
     .accessibilityHidden(true)
     .disabled(items.isEmpty)
+}
+
+private extension View {
+    func handlesClippingRowClicks(
+        _ clipping: Clipping,
+        selection: Binding<Set<Clipping>>
+    ) -> some View {
+        contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                selection.wrappedValue = [clipping]
+                _ = ClippingExternalOpenSupport.open(clipping, in: SharedData.container)
+            }
+            .onTapGesture {
+                if NSEvent.modifierFlags.contains(.command) {
+                    if selection.wrappedValue.contains(clipping) {
+                        selection.wrappedValue.remove(clipping)
+                    } else {
+                        selection.wrappedValue.insert(clipping)
+                    }
+                } else {
+                    selection.wrappedValue = [clipping]
+                }
+            }
+    }
 }
 
 // MARK: - Color Helper

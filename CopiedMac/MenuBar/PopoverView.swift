@@ -702,7 +702,7 @@ struct PopoverView: View {
                 }
             }
             Divider()
-            ForEach([ContentKind.text, .richText, .image, .video, .link, .code, .markdown, .html], id: \.self) { kind in
+            ForEach(ClippingExternalOpenSupport.filterKinds, id: \.self) { kind in
                 Button {
                     appState.filterKind = kind
                 } label: {
@@ -1123,39 +1123,7 @@ struct PopoverView: View {
     }
 
     private func openInEditor(text: String, language: String?) {
-        let ext: String
-        switch language {
-        case "swift": ext = "swift"
-        case "python": ext = "py"
-        case "javascript": ext = "js"
-        case "typescript": ext = "ts"
-        case "rust": ext = "rs"
-        case "go": ext = "go"
-        case "java": ext = "java"
-        case "html": ext = "html"
-        case "css": ext = "css"
-        case "shell": ext = "sh"
-        case "yaml": ext = "yml"
-        case "json": ext = "json"
-        case "toml": ext = "toml"
-        case "dockerfile": ext = "Dockerfile"
-        case "makefile": ext = "Makefile"
-        case "xml": ext = "xml"
-        case "sql": ext = "sql"
-        case "ruby": ext = "rb"
-        case "elixir": ext = "ex"
-        case "kotlin": ext = "kt"
-        case "c": ext = "c"
-        case "cpp": ext = "cpp"
-        case "php": ext = "php"
-        case "terraform": ext = "tf"
-        case "scala": ext = "scala"
-        case "r": ext = "R"
-        case "lua": ext = "lua"
-        case "dart": ext = "dart"
-        case "haskell": ext = "hs"
-        default: ext = "txt"
-        }
+        let ext = ClippingExternalOpenSupport.fileExtension(forLanguage: language)
 
         let tempURL = ClipboardService.quickLookCacheDirectory()
             .appendingPathComponent("snippet.\(ext)")
@@ -1171,15 +1139,7 @@ struct PopoverView: View {
             clippingID: clipping.clippingID,
             key: \Clipping.imageData
         ) else { return }
-        let ext: String
-        switch clipping.imageFormat.lowercased() {
-        case "png": ext = "png"
-        case "jpeg", "jpg": ext = "jpg"
-        case "gif": ext = "gif"
-        case "webp": ext = "webp"
-        case "heic": ext = "heic"
-        default: ext = "tiff"
-        }
+        let ext = ClippingExternalOpenSupport.imageFileExtension(forFormat: clipping.imageFormat)
         let slug = String(clipping.clippingID.prefix(8))
         let tempURL = ClipboardService.quickLookCacheDirectory()
             .appendingPathComponent("image-\(slug).\(ext)")
