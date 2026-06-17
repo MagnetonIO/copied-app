@@ -660,7 +660,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppState {
     var selectedClipping: Clipping?
     var searchText: String = ""
+    /// Main window content-type filter. The menu-bar popover keeps its own
+    /// filter so quick popover triage does not disturb the management window.
     var filterKind: ContentKind?
+    var popoverFilterKind: ContentKind?
     /// Popover list filter — when non-nil, the popover only shows
     /// clippings assigned to this `ClipList.listID`. The main window
     /// uses `sidebarSelection` for the same purpose; keeping them

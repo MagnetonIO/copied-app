@@ -192,7 +192,7 @@ struct PopoverView: View {
     private func rebuildFilteredSnapshot(from source: [Clipping]? = nil) {
         var result = source ?? freshAllClippings
 
-        if let kind = appState.filterKind {
+        if let kind = appState.popoverFilterKind {
             result = result.filter { $0.contentKind == kind }
         }
 
@@ -409,7 +409,7 @@ struct PopoverView: View {
                 refreshFreshClippings(force: true)
             }
         }
-        .onChange(of: appState.filterKind) { _, _ in
+        .onChange(of: appState.popoverFilterKind) { _, _ in
             rebuildFilteredSnapshot()
         }
         .onChange(of: appState.popoverListFilterID) { _, _ in
@@ -694,30 +694,30 @@ struct PopoverView: View {
     private var filterMenu: some View {
         Menu {
             Button {
-                appState.filterKind = nil
+                appState.popoverFilterKind = nil
             } label: {
                 HStack {
                     Text("All Types")
-                    if appState.filterKind == nil { Image(systemName: "checkmark") }
+                    if appState.popoverFilterKind == nil { Image(systemName: "checkmark") }
                 }
             }
             Divider()
             ForEach(ClippingExternalOpenSupport.filterKinds, id: \.self) { kind in
                 Button {
-                    appState.filterKind = kind
+                    appState.popoverFilterKind = kind
                 } label: {
                     HStack {
                         Text(kind.rawValue.capitalized)
-                        if appState.filterKind == kind { Image(systemName: "checkmark") }
+                        if appState.popoverFilterKind == kind { Image(systemName: "checkmark") }
                     }
                 }
             }
         } label: {
-            Image(systemName: appState.filterKind != nil
+            Image(systemName: appState.popoverFilterKind != nil
                   ? "line.3.horizontal.decrease.circle.fill"
                   : "line.3.horizontal.decrease.circle")
                 .font(.callout)
-                .foregroundStyle(appState.filterKind != nil ? .primary : .secondary)
+                .foregroundStyle(appState.popoverFilterKind != nil ? .primary : .secondary)
         }
         .buttonStyle(.plain)
         .menuStyle(.borderlessButton)
@@ -740,7 +740,7 @@ struct PopoverView: View {
                     Image(systemName: "clipboard")
                         .font(.system(size: 40))
                         .foregroundStyle(.tertiary)
-                    Text(searchText.isEmpty && appState.filterKind == nil
+                    Text(searchText.isEmpty && appState.popoverFilterKind == nil
                          ? "Copy something to get started"
                          : "No matches")
                         .font(.callout)
