@@ -722,9 +722,24 @@ public final class ClipboardService {
     ) async -> CaptureResult {
         var result = CaptureResult()
 
-        // Image data from pasteboard blobs first, then file URL disk read.
+        // Finder-style file copies put a file icon/preview blob on the
+        // pasteboard alongside the file URL. Prefer the actual image file in
+        // that case; otherwise direct bitmap copies still prefer PNG over TIFF.
         if captureImages {
-            if let png = input.pngData {
+            var fileImage: FileImageData?
+            for url in input.candidateFileURLs {
+                if let fid = readImageFile(at: url) {
+                    fileImage = fid
+                    break
+                }
+            }
+
+            if let fid = fileImage {
+                result.imageData = fid.data
+                result.imageFormat = fid.format
+                result.imageByteCount = fid.data.count
+                result.hasImage = true
+            } else if let png = input.pngData {
                 result.imageData = png
                 result.imageFormat = "png"
                 result.imageByteCount = png.count
@@ -734,16 +749,6 @@ public final class ClipboardService {
                 result.imageFormat = "tiff"
                 result.imageByteCount = tiff.count
                 result.hasImage = true
-            } else {
-                for url in input.candidateFileURLs {
-                    if let fid = readImageFile(at: url) {
-                        result.imageData = fid.data
-                        result.imageFormat = fid.format
-                        result.imageByteCount = fid.data.count
-                        result.hasImage = true
-                        break
-                    }
-                }
             }
         }
 

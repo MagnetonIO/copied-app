@@ -29,17 +29,27 @@ struct ClipboardServiceTests {
         throw CancellationError()
     }
 
-    private func imageData(type: NSBitmapImageRep.FileType) throws -> Data {
-        let image = NSImage(size: NSSize(width: 12, height: 8))
+    private func imageData(
+        width: Int = 12,
+        height: Int = 8,
+        color: NSColor = .systemBlue,
+        type: NSBitmapImageRep.FileType
+    ) throws -> Data {
+        let image = NSImage(size: NSSize(width: width, height: height))
         image.lockFocus()
-        NSColor.systemBlue.setFill()
-        NSBezierPath.fill(NSRect(x: 0, y: 0, width: 12, height: 8))
+        color.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: width, height: height))
         image.unlockFocus()
 
         let tiff = try #require(image.tiffRepresentation)
         guard type != .tiff else { return tiff }
         let rep = try #require(NSBitmapImageRep(data: tiff))
         return try #require(rep.representation(using: type, properties: [:]))
+    }
+
+    private func imagePixelSize(_ data: Data) throws -> (width: Int, height: Int) {
+        let rep = try #require(NSBitmapImageRep(data: data))
+        return (rep.pixelsWide, rep.pixelsHigh)
     }
 
     @Test("Configure sets model context")
@@ -134,6 +144,37 @@ struct ClipboardServiceTests {
         let clip = try await waitForClipping(in: ctx) { $0.hasImage }
         #expect(clip.imageFormat == "png")
         #expect(clip.imageData == png)
+    }
+
+    @Test("Image file copy uses file contents instead of pasteboard icon")
+    func imageFileCapturePrefersFileContentsOverIconBlob() async throws {
+        let service = ClipboardService()
+        let ctx = try makeContext()
+        service.configure(modelContext: ctx)
+
+        let filePNG = try imageData(width: 64, height: 48, color: .systemGreen, type: .png)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("copied-image-file-\(UUID().uuidString).png")
+        try filePNG.write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboardIconPNG = try imageData(width: 12, height: 8, color: .systemBlue, type: .png)
+        let item = NSPasteboardItem()
+        item.setString(fileURL.absoluteString, forType: .fileURL)
+        item.setData(pasteboardIconPNG, forType: .png)
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+
+        service.saveCurrentClipboard()
+
+        let clip = try await waitForClipping(in: ctx) { $0.hasImage }
+        let expectedSize = try imagePixelSize(filePNG)
+        #expect(clip.imageFormat == "png")
+        #expect(clip.imageData == filePNG)
+        #expect(clip.imageWidth == Double(expectedSize.width))
+        #expect(clip.imageHeight == Double(expectedSize.height))
     }
 
     @Test("Screenshot UI ignore does not drop text or URL copies")
