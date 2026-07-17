@@ -46,6 +46,7 @@
 		9ECA08EDDEB19AA56187D51C /* SiriShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDBF3C81AD319943D40A66 /* SiriShortcutsSettingsView.swift */; };
 		9F0237E941A9D8C9E0837B71 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177577A5DA3E115A8224EF87 /* DesignTokens.swift */; };
 		A7251E200F17B40E044FB2B0 /* ClippingSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19AD031F35C5A7AA963F23D5 /* ClippingSortOrder.swift */; };
+		AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */; };
 		AB558506E7EC4C436432A156 /* CopiedShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		BAB1D9AC6E706CCCB9DD3456 /* ClippingsListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2FAEBD6420F33C29FEF639 /* ClippingsListScreen.swift */; };
 		BBA352556BE9A969BD1DFF6D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BDCB5C4650FAAE414B4E2D3F /* Assets.xcassets */; };
@@ -154,6 +155,7 @@
 		A82213C00ABECE06AEF5974E /* TextFormattersSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFormattersSettingsView.swift; sourceTree = "<group>"; };
 		B0BCED9C4D9AA3FB500882EB /* ClipperActionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipperActionViewController.swift; sourceTree = "<group>"; };
 		B5A4114F0D078DA4FF7B6D6E /* InterfaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSettingsView.swift; sourceTree = "<group>"; };
+		B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseValidatorTests.swift; sourceTree = "<group>"; };
 		BDCB5C4650FAAE414B4E2D3F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BE2E27F191AFBB92C5CD30E2 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CopiedKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -380,6 +382,7 @@
 				29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */,
 				D511C12F7A91C1F037BE1262 /* ClipListTests.swift */,
 				DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */,
+				B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */,
 				3A402C52089CDB3C6E28A019 /* PasteQueueTests.swift */,
 				253D7474DF1C1851733BBD77 /* QATests.swift */,
 			);
@@ -664,6 +667,7 @@
 				8A19023873943BB97C5EAC15 /* ClipListTests.swift in Sources */,
 				6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */,
 				046575326421682114D85DCB /* ClippingModelTests.swift in Sources */,
+				AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */,
 				385697753C3F1DA87A70ADC3 /* PasteQueueTests.swift in Sources */,
 				4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */,
 			);
@@ -733,7 +737,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -758,7 +762,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -780,7 +784,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -908,7 +912,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -990,7 +994,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1015,7 +1019,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1038,7 +1042,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1059,7 +1063,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (

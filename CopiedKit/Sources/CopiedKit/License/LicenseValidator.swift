@@ -13,10 +13,12 @@ public enum LicenseValidator {
     /// Regenerate both halves together; private half is gitignored under `.keys/`.
     static let publicKeyHex = "47cbf96653e629edc20829ec4eb3c83e3f01fd52035b728c1d0d73e328e65b3a"
 
-    /// The only product this app treats as an iCloud Sync unlock. A license
-    /// signed by the same Ed25519 key but for a different product (future
-    /// SKUs, or a typo on the issuing side) must NOT unlock this feature.
-    public static let expectedProduct = "icloud_sync"
+    /// The canonical Stripe product this app treats as an iCloud Sync unlock.
+    /// Production checkout issues this product value today; the legacy aliases
+    /// keep older signed keys working without accepting arbitrary SKUs.
+    public static let expectedProduct = "copied-mac-icloud"
+    static let legacyProducts: Set<String> = ["icloud_sync", "copied-icloud"]
+    static let acceptedProducts = legacyProducts.union([expectedProduct])
 
     public struct LicensePayload: Codable, Sendable {
         public let product: String
@@ -35,6 +37,10 @@ public enum LicenseValidator {
     }
 
     public static func verify(license: String) throws -> LicensePayload {
+        try verify(license: license, publicKeyHex: publicKeyHex)
+    }
+
+    static func verify(license: String, publicKeyHex: String) throws -> LicensePayload {
         let parts = license.split(separator: ".")
         guard parts.count == 2,
               let payloadData = Data(base64URLEncoded: String(parts[0])),
@@ -54,7 +60,7 @@ public enum LicenseValidator {
         } catch {
             throw VerifyError.badPayload
         }
-        guard payload.product == expectedProduct else {
+        guard acceptedProducts.contains(payload.product) else {
             throw VerifyError.wrongProduct
         }
         return payload
