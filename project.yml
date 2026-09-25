@@ -18,6 +18,9 @@ options:
 packages:
   CopiedKit:
     path: CopiedKit
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 
 settings:
   base:
@@ -84,7 +87,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         # Compile flags:
         #   MAS_BUILD       — paywall UI + PurchaseManager symbol present
         #   MAS_STOREFRONT  — "Unlock" button talks to real StoreKit (App Store IAP).
@@ -127,6 +130,78 @@ targets:
       # Attach the local StoreKit config so Xcode Run simulates IAP purchases
       # without requiring the App Store Connect product to exist.
       storeKitConfiguration: Copied.storekit
+      testTargets:
+        - CopiedKitTests
+
+  # Developer ID build distributed from getcopied.app and GitHub. Keep this
+  # separate from CopiedMac so Sparkle is never linked into the Mac App Store
+  # binary. The source tree is shared; DIRECT_DOWNLOAD gates updater-only UI.
+  CopiedMacDirect:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    attributes:
+      SystemCapabilities:
+        com.apple.Push:
+          enabled: 1
+        com.apple.iCloud:
+          enabled: 1
+    sources:
+      - CopiedMac
+    dependencies:
+      - package: CopiedKit
+      - package: Sparkle
+        product: Sparkle
+      - sdk: CloudKit.framework
+    info:
+      path: CopiedMac/Info-Direct.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        LSUIElement: false
+        LSApplicationCategoryType: public.app-category.utilities
+        NSAppleScriptEnabled: true
+        CFBundleDisplayName: Copied
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        SUFeedURL: https://www.getcopied.app/appcast.xml
+        SUPublicEDKey: hVkmmEsDcyHxHY7ZJ8UA/n07xRo4mIHBx0J/ixUW2EU=
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        SUAutomaticallyUpdate: false
+        CFBundleURLTypes:
+          - CFBundleURLName: com.magneton.copied.url-scheme
+            CFBundleURLSchemes: [copied]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied
+        PRODUCT_NAME: Copied
+        PRODUCT_MODULE_NAME: Copied
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
+        SWIFT_EMIT_LOC_STRINGS: true
+        MARKETING_VERSION: "1.3.3"
+        CURRENT_PROJECT_VERSION: "13"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD
+        APS_ENVIRONMENT: production
+      configs:
+        Debug:
+          # Avoid colliding with CopiedMac's Debug output when the unit-test
+          # scheme resolves implicit host dependencies. Release remains Copied.app.
+          PRODUCT_NAME: CopiedDirect
+          PRODUCT_MODULE_NAME: CopiedDirect
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD
+          APS_ENVIRONMENT: development
+    entitlements:
+      path: CopiedMac/CopiedMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.developer.aps-environment: $(APS_ENVIRONMENT)
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.magneton.Copied
+        com.apple.developer.icloud-services:
+          - CloudKit
 
   # ──────────────────────────────────────────
   # iOS App
@@ -199,7 +274,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Wire the host Assets.xcassets (generated 1024×1024 AppIcon — Xcode
         # synthesizes all iOS resolutions). Without this the home-screen and
@@ -297,7 +372,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedShareExtension/CopiedShareExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Dedicated AppIcon for the share row — without this iOS falls
         # back to a generic placeholder in the share sheet.
@@ -375,7 +450,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CopiedClipperExtension/CopiedClipperExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "12"
+        CURRENT_PROJECT_VERSION: "13"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT

@@ -7,15 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00B6720E035B48CA119CB00D /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		026BF138D0C40A252AA265BC /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		046575326421682114D85DCB /* ClippingModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */; };
 		08689498DC466E3E15391BE9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5B97AF7289040AD52E89380D /* PrivacyInfo.xcprivacy */; };
+		0B21A6B61C5C8F4EF592C724 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */; };
 		0D816BAF544C34FD9F65B756 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
+		0E50B78E1399A0B08FE6CF62 /* PopoverClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B039D4406990AB5444E169A /* PopoverClippingCard.swift */; };
 		16498CACA732AE9498044B61 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7BAF822866372C0A8E61D86 /* CopiedKit */; };
 		1ADBD9AE0A2552057FB41CA1 /* IOSContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E7F9BDEBDC0D938D2DA15B /* IOSContentView.swift */; };
+		2207A608128EEC103F03E0A9 /* CopiedMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */; };
 		2424BE107C81564D9544F7D3 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 12BA8D72684F91B1163A3BF6 /* CopiedKit */; };
 		24B456A53173354F4798AF53 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F5B9606604EF52355AC247 /* SettingsWindowController.swift */; };
 		267C6A37DBD79143104EB0D0 /* AppRestarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F49BBDF97F56680FA79F5B /* AppRestarter.swift */; };
+		293C0D7D06D7F37ACC7C63CD /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 614533FA79D06544A1306D8A /* UpdateManager.swift */; };
 		2C81EDF5BE791A7967BBE4C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 07578CEAA4D43E1F8EF0FEB1 /* Assets.xcassets */; };
 		32D4FBF0DED5CB809EC0BC7B /* CopiedClipperExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 61A09094992D1755F0A87E23 /* CopiedClipperExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		3604A4E4CF18DBF9C3A6A361 /* RootNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 633BB84540D425E2A3F96281 /* RootNavigator.swift */; };
@@ -25,21 +30,29 @@
 		4B2F80AB79B2B2449CC2F3A3 /* SaveClippingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9ADA0E0AD44F8B8B31355F5 /* SaveClippingSheet.swift */; };
 		4E20462F46FAA4B4DC1BAF37 /* ListsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 236B7D8EE54675D2314DC136 /* ListsScreen.swift */; };
 		4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253D7474DF1C1851733BBD77 /* QATests.swift */; };
+		52D4CDDFBCB30D7394C2D8DB /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */; };
 		5B3A35722BA87BCA1F0984DE /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 65F01B69873E194D68E0BDF5 /* CopiedKit */; };
 		5B6FFBCAACE8C2FCBB010D06 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 83A903B7F63DBF1CD891CB44 /* PrivacyInfo.xcprivacy */; };
 		5DBFB8C5F2872EE231E65C14 /* SharedClippingCloudUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */; };
+		5F19A2CD72C3F6507AFF2857 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0DC10E8877F0AF5A1FEB431F /* Info.plist */; };
 		633B1A5F62F48594C2B847FE /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		6A0129B57D1D871B1AA5089C /* SyncScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DBD092BADC5A5DB49DD558 /* SyncScreen.swift */; };
 		6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B039D4406990AB5444E169A /* PopoverClippingCard.swift */; };
+		6DFA02AFA66459F1B8430C68 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F5B9606604EF52355AC247 /* SettingsWindowController.swift */; };
 		6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */; };
 		724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68365944B55FF8FB14382D5 /* PermissionManager.swift */; };
+		740AB8B78191B8B32243712F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 96D9EDE8FE373D1DC85D70A2 /* Sparkle */; };
+		7694BB192C9FEA973603ED22 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */; };
 		7736F7876559BB4CFD34ED3B /* ClippingActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F155ABC08FE1F7ED24D6588 /* ClippingActionSheet.swift */; };
 		7E42D6444766F93DCB289829 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACD2861424F723D5D609AB4D /* CopiedKit */; };
+		857BDE3BFEB7E9C775E6B9A2 /* AppRestarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F49BBDF97F56680FA79F5B /* AppRestarter.swift */; };
 		8A19023873943BB97C5EAC15 /* ClipListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D511C12F7A91C1F037BE1262 /* ClipListTests.swift */; };
 		8A8AC5000C43193E11BE3585 /* CopiedMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */; };
 		8D03DD120B7D7E5D83463DD3 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */; };
 		8D5BA0582EC815FB16EAF6C6 /* ClippingDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDC91A24F21D48FB8273EE8A /* ClippingDetailScreen.swift */; };
 		8E571072F83C8735F75B5479 /* ClippingEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */; };
+		8E806D207ACA71A1C97150A6 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A621629EB1423A7F5305E1 /* PopoverView.swift */; };
+		919BCB508DB07CA0090F74F3 /* MacUpdateChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2404B965DCA2AB51E9FFE3B /* MacUpdateChannelTests.swift */; };
 		975D5A9E7F803B06B2C95202 /* ClippingEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4AB9106A2F0E591B6F8D29F /* ClippingEditSheet.swift */; };
 		979E1F22BA6D8BF0A429A471 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C446B8F58834A31AD60297C5 /* MainWindowView.swift */; };
 		99194222245B9CF216763D72 /* MergeScriptsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932048D8F4B76A9FF57B900C /* MergeScriptsSettingsView.swift */; };
@@ -48,21 +61,27 @@
 		9ECA08EDDEB19AA56187D51C /* SiriShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDBF3C81AD319943D40A66 /* SiriShortcutsSettingsView.swift */; };
 		9F0237E941A9D8C9E0837B71 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177577A5DA3E115A8224EF87 /* DesignTokens.swift */; };
 		A7251E200F17B40E044FB2B0 /* ClippingSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19AD031F35C5A7AA963F23D5 /* ClippingSortOrder.swift */; };
+		A967037E4A6A0F2FF261E04E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2977CA0AC8339871C8329B52 /* Assets.xcassets */; };
 		AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */; };
 		AB558506E7EC4C436432A156 /* CopiedShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		BAB1D9AC6E706CCCB9DD3456 /* ClippingsListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2FAEBD6420F33C29FEF639 /* ClippingsListScreen.swift */; };
 		BBA352556BE9A969BD1DFF6D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BDCB5C4650FAAE414B4E2D3F /* Assets.xcassets */; };
 		BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A621629EB1423A7F5305E1 /* PopoverView.swift */; };
+		C1663A6BAB3278B0242F7005 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB8A00D4882BAB13C68B0A2 /* CopiedKit */; };
 		C17EA098895F9894B07B80A7 /* InterfaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A4114F0D078DA4FF7B6D6E /* InterfaceSettingsView.swift */; };
 		C28D31C08B3BFDBD26E59062 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 2FBDD82222D737FEE0F7BF19 /* PrivacyInfo.xcprivacy */; };
 		C6421964781358817D1C03D8 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
+		C669C712355C08854A820C96 /* MainWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C446B8F58834A31AD60297C5 /* MainWindowView.swift */; };
 		C692415D1F0772167C9B1932 /* RulesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6F34BD526DA88B2B1DC503 /* RulesSettingsView.swift */; };
 		CA3E412595269BBC26BA83D8 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7AB64045D6A6D4D97A446C0 /* ShareViewController.swift */; };
 		CB01813FB853F5BBB9FFD0D8 /* ClipperPreprocess.js in Resources */ = {isa = PBXBuildFile; fileRef = 91AA07497DF33BF48D307F31 /* ClipperPreprocess.js */; };
+		CD768DEBF0CE4DB500318F45 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 614533FA79D06544A1306D8A /* UpdateManager.swift */; };
 		D1185723474BD2535965819E /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2E27F191AFBB92C5CD30E2 /* SettingsSheet.swift */; };
+		D57CAC66A8BD5D53C055AECE /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68365944B55FF8FB14382D5 /* PermissionManager.swift */; };
 		D627B7F3A8BDC97E9008F6EE /* TextFormattersSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82213C00ABECE06AEF5974E /* TextFormattersSettingsView.swift */; };
 		D8EB6881A2C104748CC89F15 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */; };
 		DB6B066B32FB31C7303889C7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D76CBB77DB5A5E7B079F71A7 /* Assets.xcassets */; };
+		DF39863E07623D97EA1CCC6A /* Info-Direct.plist in Resources */ = {isa = PBXBuildFile; fileRef = 4C82B87E345A71BD1EA9B12E /* Info-Direct.plist */; };
 		DFD6BE1E71C872610E6D38D3 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A45E61C459AE9606303437C5 /* UniformTypeIdentifiers.framework */; };
 		E0D9256012865D83AE6F87BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2977CA0AC8339871C8329B52 /* Assets.xcassets */; };
 		E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */; };
@@ -70,6 +89,7 @@
 		EC8A08995C96DD426DE53349 /* ClippingShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949334C5CCFB84FEE40A96D7 /* ClippingShareSheet.swift */; };
 		EF36C3DBC239D51CEFEBA5D4 /* ClipboardScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78E009C3BCB9704E4BDE568 /* ClipboardScreen.swift */; };
 		F7B50FECD3043234F8C9618A /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A45E61C459AE9606303437C5 /* UniformTypeIdentifiers.framework */; };
+		FC58618EE11F7C63121FBBE6 /* ClippingEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */; };
 		FD085A1EEBC50C44CCB924AD /* CopiedAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000F74DFFD806DA96C1C47B7 /* CopiedAppShortcuts.swift */; };
 /* End PBXBuildFile section */
 
@@ -134,15 +154,18 @@
 		3EF43CB043C2D52CBB11AEC0 /* CopiedMac-MAS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CopiedMac-MAS.entitlements"; sourceTree = "<group>"; };
 		4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedIOSApp.swift; sourceTree = "<group>"; };
+		4C82B87E345A71BD1EA9B12E /* Info-Direct.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-Direct.plist"; sourceTree = "<group>"; };
 		52AB50F7343FD5C56B2E5173 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CopiedShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
 		5B97AF7289040AD52E89380D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		614533FA79D06544A1306D8A /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		61A09094992D1755F0A87E23 /* CopiedClipperExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CopiedClipperExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		633BB84540D425E2A3F96281 /* RootNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootNavigator.swift; sourceTree = "<group>"; };
 		64F5B9606604EF52355AC247 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		6B039D4406990AB5444E169A /* PopoverClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverClippingCard.swift; sourceTree = "<group>"; };
 		6CFDBF3C81AD319943D40A66 /* SiriShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriShortcutsSettingsView.swift; sourceTree = "<group>"; };
+		7796C21EDD68C0ED1820B803 /* CopiedMacDirect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CopiedMacDirect.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83A903B7F63DBF1CD891CB44 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8D957E3D5D9C555F80DF2243 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8E2FAEBD6420F33C29FEF639 /* ClippingsListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingsListScreen.swift; sourceTree = "<group>"; };
@@ -152,6 +175,7 @@
 		932048D8F4B76A9FF57B900C /* MergeScriptsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MergeScriptsSettingsView.swift; sourceTree = "<group>"; };
 		949334C5CCFB84FEE40A96D7 /* ClippingShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingShareSheet.swift; sourceTree = "<group>"; };
 		96955B40B8A89EE3BE51259A /* CopiedMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedMacApp.swift; sourceTree = "<group>"; };
+		A2404B965DCA2AB51E9FFE3B /* MacUpdateChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdateChannelTests.swift; sourceTree = "<group>"; };
 		A45E61C459AE9606303437C5 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		A4AB9106A2F0E591B6F8D29F /* ClippingEditSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingEditSheet.swift; sourceTree = "<group>"; };
 		A6422FAB86659079D9EC2727 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
@@ -201,6 +225,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		3D2C8D12150F0C829D069D7F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1663A6BAB3278B0242F7005 /* CopiedKit in Frameworks */,
+				740AB8B78191B8B32243712F /* Sparkle in Frameworks */,
+				00B6720E035B48CA119CB00D /* CloudKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7615C1B8C9DEF9BD4C280B9B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -241,6 +275,7 @@
 				5825C0934C4BE696B5BD635F /* GlobalHotkeyManager.swift */,
 				D68365944B55FF8FB14382D5 /* PermissionManager.swift */,
 				64F5B9606604EF52355AC247 /* SettingsWindowController.swift */,
+				614533FA79D06544A1306D8A /* UpdateManager.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -377,6 +412,7 @@
 				294BCC0938D4BD6227DD3159 /* CopiedIOS.app */,
 				BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */,
 				FCA7831A76D46DF3744FCD06 /* CopiedMac.app */,
+				7796C21EDD68C0ED1820B803 /* CopiedMacDirect.app */,
 				54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */,
 			);
 			name = Products;
@@ -389,6 +425,7 @@
 				D511C12F7A91C1F037BE1262 /* ClipListTests.swift */,
 				DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */,
 				B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */,
+				A2404B965DCA2AB51E9FFE3B /* MacUpdateChannelTests.swift */,
 				3A402C52089CDB3C6E28A019 /* PasteQueueTests.swift */,
 				253D7474DF1C1851733BBD77 /* QATests.swift */,
 				2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */,
@@ -409,6 +446,7 @@
 				2977CA0AC8339871C8329B52 /* Assets.xcassets */,
 				3EF43CB043C2D52CBB11AEC0 /* CopiedMac-MAS.entitlements */,
 				F0A0703C9592958941B00289 /* CopiedMac.entitlements */,
+				4C82B87E345A71BD1EA9B12E /* Info-Direct.plist */,
 				0DC10E8877F0AF5A1FEB431F /* Info.plist */,
 			);
 			path = CopiedMac;
@@ -458,6 +496,27 @@
 			productName = CopiedClipperExtension;
 			productReference = 61A09094992D1755F0A87E23 /* CopiedClipperExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		3FFB9F80290BB5097583D0C3 /* CopiedMacDirect */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0775A85C2A6846330DAB3681 /* Build configuration list for PBXNativeTarget "CopiedMacDirect" */;
+			buildPhases = (
+				853F665E24B8088326F53301 /* Sources */,
+				AAC3054F494E96AB33653BC6 /* Resources */,
+				3D2C8D12150F0C829D069D7F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CopiedMacDirect;
+			packageProductDependencies = (
+				5EB8A00D4882BAB13C68B0A2 /* CopiedKit */,
+				96D9EDE8FE373D1DC85D70A2 /* Sparkle */,
+			);
+			productName = CopiedMacDirect;
+			productReference = 7796C21EDD68C0ED1820B803 /* CopiedMacDirect.app */;
+			productType = "com.apple.product-type.application";
 		};
 		520AD34CEF71A26CAEC95AC1 /* CopiedShareExtension */ = {
 			isa = PBXNativeTarget;
@@ -554,7 +613,12 @@
 					246B4BCC68C76E0FB02B4FCC = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
+					};
+					3FFB9F80290BB5097583D0C3 = {
+						DevelopmentTeam = 7727LYTG96;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
 					};
 					520AD34CEF71A26CAEC95AC1 = {
 						DevelopmentTeam = 7727LYTG96;
@@ -573,7 +637,7 @@
 					F47662F6E87A5A3AD6388873 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.Push\": [\"enabled\": 1], \"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -587,6 +651,7 @@
 			mainGroup = F55C9D89A0CC6A66820EDE8C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				98EFE3FF8E89B663A3A09C2E /* XCRemoteSwiftPackageReference "Sparkle" */,
 				97C1CF0CECB6DE55106DCE31 /* XCLocalSwiftPackageReference "CopiedKit" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -595,6 +660,7 @@
 			projectRoot = "";
 			targets = (
 				67CF2DC485C5993966B494D7 /* CopiedMac */,
+				3FFB9F80290BB5097583D0C3 /* CopiedMacDirect */,
 				F47662F6E87A5A3AD6388873 /* CopiedIOS */,
 				520AD34CEF71A26CAEC95AC1 /* CopiedShareExtension */,
 				246B4BCC68C76E0FB02B4FCC /* CopiedClipperExtension */,
@@ -622,12 +688,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AAC3054F494E96AB33653BC6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7694BB192C9FEA973603ED22 /* AppIcon.icns in Resources */,
+				A967037E4A6A0F2FF261E04E /* Assets.xcassets in Resources */,
+				5F19A2CD72C3F6507AFF2857 /* Info.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AE02527F23BE46A10219CBA2 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				D8EB6881A2C104748CC89F15 /* AppIcon.icns in Resources */,
 				E0D9256012865D83AE6F87BA /* Assets.xcassets in Resources */,
+				DF39863E07623D97EA1CCC6A /* Info-Direct.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -666,6 +743,25 @@
 				BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */,
 				E2F5BEF8FDE389B570B84C6A /* SettingsView.swift in Sources */,
 				24B456A53173354F4798AF53 /* SettingsWindowController.swift in Sources */,
+				CD768DEBF0CE4DB500318F45 /* UpdateManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		853F665E24B8088326F53301 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				857BDE3BFEB7E9C775E6B9A2 /* AppRestarter.swift in Sources */,
+				FC58618EE11F7C63121FBBE6 /* ClippingEditSheet.swift in Sources */,
+				2207A608128EEC103F03E0A9 /* CopiedMacApp.swift in Sources */,
+				52D4CDDFBCB30D7394C2D8DB /* GlobalHotkeyManager.swift in Sources */,
+				C669C712355C08854A820C96 /* MainWindowView.swift in Sources */,
+				D57CAC66A8BD5D53C055AECE /* PermissionManager.swift in Sources */,
+				0E50B78E1399A0B08FE6CF62 /* PopoverClippingCard.swift in Sources */,
+				8E806D207ACA71A1C97150A6 /* PopoverView.swift in Sources */,
+				0B21A6B61C5C8F4EF592C724 /* SettingsView.swift in Sources */,
+				6DFA02AFA66459F1B8430C68 /* SettingsWindowController.swift in Sources */,
+				293C0D7D06D7F37ACC7C63CD /* UpdateManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -677,6 +773,7 @@
 				6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */,
 				046575326421682114D85DCB /* ClippingModelTests.swift in Sources */,
 				AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */,
+				919BCB508DB07CA0090F74F3 /* MacUpdateChannelTests.swift in Sources */,
 				385697753C3F1DA87A70ADC3 /* PasteQueueTests.swift in Sources */,
 				4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */,
 				5DBFB8C5F2872EE231E65C14 /* SharedClippingCloudUploaderTests.swift in Sources */,
@@ -747,7 +844,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -772,7 +869,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -794,7 +891,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -922,7 +1019,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -936,6 +1033,30 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG MAS_BUILD MAS_STOREFRONT";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A18DC95DE1912649474327DC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APS_ENVIRONMENT = development;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 13;
+				INFOPLIST_FILE = "CopiedMac/Info-Direct.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.magneton.copied;
+				PRODUCT_MODULE_NAME = CopiedDirect;
+				PRODUCT_NAME = CopiedDirect;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Debug;
 		};
@@ -1004,7 +1125,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1029,7 +1150,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1045,6 +1166,30 @@
 			};
 			name = Debug;
 		};
+		D97197988FFE5FC5F1CC36BC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APS_ENVIRONMENT = production;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 13;
+				INFOPLIST_FILE = "CopiedMac/Info-Direct.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.3.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.magneton.copied;
+				PRODUCT_MODULE_NAME = Copied;
+				PRODUCT_NAME = Copied;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
 		E4CD149609B9530C1ED99181 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1052,7 +1197,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1073,7 +1218,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1094,6 +1239,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0775A85C2A6846330DAB3681 /* Build configuration list for PBXNativeTarget "CopiedMacDirect" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A18DC95DE1912649474327DC /* Debug */,
+				D97197988FFE5FC5F1CC36BC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		290A668B82DB972483C72D49 /* Build configuration list for PBXNativeTarget "CopiedIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1157,14 +1311,34 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		98EFE3FF8E89B663A3A09C2E /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		12BA8D72684F91B1163A3BF6 /* CopiedKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CopiedKit;
+		};
+		5EB8A00D4882BAB13C68B0A2 /* CopiedKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CopiedKit;
 		};
 		65F01B69873E194D68E0BDF5 /* CopiedKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CopiedKit;
+		};
+		96D9EDE8FE373D1DC85D70A2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 98EFE3FF8E89B663A3A09C2E /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 		ACD2861424F723D5D609AB4D /* CopiedKit */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -24,6 +24,19 @@ def asc_api_key
   )
 end
 
+# Deliver auto-detects these variables even when a token object is passed,
+# which makes precheck reject the otherwise valid configuration as ambiguous.
+def with_asc_api_key_env_cleared
+  saved = {
+    "APP_STORE_CONNECT_API_KEY_PATH" => ENV.delete("APP_STORE_CONNECT_API_KEY_PATH"),
+    "APP_STORE_CONNECT_API_KEY_ID" => ENV.delete("APP_STORE_CONNECT_API_KEY_ID"),
+    "APP_STORE_CONNECT_API_ISSUER_ID" => ENV.delete("APP_STORE_CONNECT_API_ISSUER_ID")
+  }
+  yield
+ensure
+  saved.each { |name, value| ENV[name] = value if value }
+end
+
 platform :mac do
   # ── CI ──────────────────────────────────────────────
 
@@ -153,8 +166,9 @@ platform :mac do
     build_variant_pkg(
       variant_name: "paid-license",
       output_subdir: "build/license",
-      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE",
+      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD",
       pkg_basename: "Copied",
+      scheme_name: "CopiedMacDirect",
       auto_open: options[:open].to_s == "true"
     )
   end
@@ -164,8 +178,9 @@ platform :mac do
     build_variant_pkg(
       variant_name: "paid-license-test",
       output_subdir: "build/license-test",
-      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE LICENSE_STRIPE_LOCAL",
+      active_compilation_conditions: "MAS_BUILD LICENSE_STRIPE LICENSE_STRIPE_LOCAL DIRECT_DOWNLOAD",
       pkg_basename: "Copied-License-TEST",
+      scheme_name: "CopiedMacDirect",
       auto_open: true
     )
   end
@@ -246,7 +261,7 @@ platform :mac do
   # archive+export path as build_variant, but wraps the .app in a productbuild
   # component pkg signed with the Developer ID Installer cert. Stapler staples
   # the notarization ticket so the pkg installs offline without prompts.
-  def build_variant_pkg(variant_name:, output_subdir:, active_compilation_conditions:, pkg_basename:, auto_open: false)
+  def build_variant_pkg(variant_name:, output_subdir:, active_compilation_conditions:, pkg_basename:, scheme_name: "CopiedMac", auto_open: false)
     repo = File.expand_path("..", __dir__)
     sh("mkdir -p '#{repo}/#{output_subdir}'")
 
@@ -263,7 +278,7 @@ platform :mac do
     # `| tail -20` pipe; without it, fastlane sees tail's exit 0 and proceeds.
     sh(%(cd '#{repo}' && set -o pipefail && xcodebuild \\
       -project Copied.xcodeproj \\
-      -scheme CopiedMac \\
+      -scheme '#{scheme_name}' \\
       -configuration Release \\
       -destination 'generic/platform=macOS' \\
       -archivePath '#{archive}' \\
@@ -336,7 +351,7 @@ platform :mac do
 
   def read_build_number
     project_yml = File.read(File.expand_path("../project.yml", __dir__))
-    m = project_yml.match(/CFBundleVersion:\s*"([^"]+)"/)
+    m = project_yml.match(/CURRENT_PROJECT_VERSION:\s*"([^"]+)"/)
     m ? m[1] : "1"
   end
 
@@ -611,7 +626,7 @@ platform :mac do
       <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
       <plist version="1.0">
       <dict>
-          <key>method</key><string>app-store</string>
+          <key>method</key><string>app-store-connect</string>
           <key>signingStyle</key><string>manual</string>
           <key>signingCertificate</key><string>Apple Distribution</string>
           <key>installerSigningCertificate</key><string>3rd Party Mac Developer Installer</string>
@@ -656,16 +671,18 @@ platform :mac do
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
 
-    upload_to_app_store(
-      api_key: key,
-      platform: "osx",
-      skip_binary_upload: true,
-      skip_screenshots: false,
-      skip_metadata: false,
-      force: true,
-      precheck_include_in_app_purchases: false,
-      submit_for_review: false
-    )
+    with_asc_api_key_env_cleared do
+      upload_to_app_store(
+        api_key: key,
+        platform: "osx",
+        skip_binary_upload: true,
+        skip_screenshots: false,
+        skip_metadata: false,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        submit_for_review: false
+      )
+    end
   end
 
   desc "Upload screenshots only"
@@ -673,15 +690,18 @@ platform :mac do
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
 
-    upload_to_app_store(
-      api_key: key,
-      platform: "osx",
-      skip_binary_upload: true,
-      skip_screenshots: false,
-      skip_metadata: true,
-      force: true,
-      submit_for_review: false
-    )
+    with_asc_api_key_env_cleared do
+      upload_to_app_store(
+        api_key: key,
+        platform: "osx",
+        skip_binary_upload: true,
+        skip_screenshots: false,
+        skip_metadata: true,
+        force: true,
+        run_precheck_before_submit: false,
+        submit_for_review: false
+      )
+    end
   end
 
   desc "MAS build + upload binary + upload metadata, but DO NOT submit for review. Use this to stage a build in App Store Connect for manual submit via the web UI."
@@ -691,21 +711,23 @@ platform :mac do
 
     mas_build unless File.exist?("../build/mas/Copied.pkg")
 
-    upload_to_app_store(
-      api_key: key,
-      platform: "osx",
-      pkg: "build/mas/Copied.pkg",
-      skip_binary_upload: false,
-      skip_screenshots: false,
-      skip_metadata: false,
-      force: true,
-      precheck_include_in_app_purchases: false,
-      run_precheck_before_submit: false,
-      submit_for_review: false,
-      automatic_release: false
-    )
+    with_asc_api_key_env_cleared do
+      upload_to_app_store(
+        api_key: key,
+        platform: "osx",
+        pkg: "build/mas/Copied.pkg",
+        skip_binary_upload: false,
+        skip_screenshots: false,
+        skip_metadata: false,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        run_precheck_before_submit: false,
+        submit_for_review: false,
+        automatic_release: false
+      )
+    end
 
-    UI.success("Uploaded Copied App 1.2.0 to App Store Connect (NOT submitted). Review + submit at https://appstoreconnect.apple.com/apps")
+    UI.success("Uploaded Copied App to App Store Connect (NOT submitted). Review + submit at https://appstoreconnect.apple.com/apps")
   end
 
   desc "Submit the already-uploaded build for Apple review. Use this after mas_upload has pushed a binary to App Store Connect and you've verified metadata/icon/categories in the web UI. Does NOT rebuild or re-upload."
@@ -713,22 +735,24 @@ platform :mac do
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
 
-    upload_to_app_store(
-      api_key: key,
-      platform: "osx",
-      skip_binary_upload: true,
-      skip_metadata: true,
-      skip_screenshots: true,
-      force: true,
-      precheck_include_in_app_purchases: false,
-      run_precheck_before_submit: false,
-      submit_for_review: true,
-      automatic_release: false,
-      submission_information: {
-        add_id_info_uses_idfa: false,
-        export_compliance_uses_encryption: false
-      }
-    )
+    with_asc_api_key_env_cleared do
+      upload_to_app_store(
+        api_key: key,
+        platform: "osx",
+        skip_binary_upload: true,
+        skip_metadata: true,
+        skip_screenshots: true,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        run_precheck_before_submit: false,
+        submit_for_review: true,
+        automatic_release: false,
+        submission_information: {
+          add_id_info_uses_idfa: false,
+          export_compliance_uses_encryption: false
+        }
+      )
+    end
 
     UI.success("Submitted Copied App for App Review")
   end
@@ -740,21 +764,23 @@ platform :mac do
 
     mas_build
 
-    upload_to_app_store(
-      api_key: key,
-      platform: "osx",
-      pkg: "build/mas/Copied.pkg",
-      skip_screenshots: false,
-      skip_metadata: false,
-      force: true,
-      precheck_include_in_app_purchases: false,
-      submit_for_review: true,
-      automatic_release: false,
-      submission_information: {
-        add_id_info_uses_idfa: false,
-        export_compliance_uses_encryption: false
-      }
-    )
+    with_asc_api_key_env_cleared do
+      upload_to_app_store(
+        api_key: key,
+        platform: "osx",
+        pkg: "build/mas/Copied.pkg",
+        skip_screenshots: false,
+        skip_metadata: false,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        submit_for_review: true,
+        automatic_release: false,
+        submission_information: {
+          add_id_info_uses_idfa: false,
+          export_compliance_uses_encryption: false
+        }
+      )
+    end
 
     UI.success("Submitted Copied App to App Review")
   end
@@ -909,7 +935,7 @@ platform :ios do
       <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
       <plist version="1.0">
       <dict>
-          <key>method</key><string>app-store</string>
+          <key>method</key><string>app-store-connect</string>
           <key>signingStyle</key><string>automatic</string>
           <key>teamID</key><string>7727LYTG96</string>
       </dict>
@@ -975,13 +1001,7 @@ platform :ios do
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key — set APP_STORE_CONNECT_API_KEY_ID/_ISSUER_ID/_PATH in .env") unless key
 
-    # Temporarily clear the env vars deliver auto-picks up — otherwise deliver sees
-    # both api_key (we pass) and api_key_path (deliver auto-detects) and errors with
-    # "Unresolved conflict between options".
-    saved_path = ENV.delete("APP_STORE_CONNECT_API_KEY_PATH")
-    saved_id   = ENV.delete("APP_STORE_CONNECT_API_KEY_ID")
-    saved_iss  = ENV.delete("APP_STORE_CONNECT_API_ISSUER_ID")
-    begin
+    with_asc_api_key_env_cleared do
       upload_to_app_store(
         api_key: key,
         app_identifier: "com.magneton.copied",
@@ -996,10 +1016,6 @@ platform :ios do
         precheck_include_in_app_purchases: false,
         submit_for_review: false
       )
-    ensure
-      ENV["APP_STORE_CONNECT_API_KEY_PATH"] = saved_path
-      ENV["APP_STORE_CONNECT_API_KEY_ID"]   = saved_id
-      ENV["APP_STORE_CONNECT_API_ISSUER_ID"] = saved_iss
     end
   end
 
@@ -1015,10 +1031,7 @@ platform :ios do
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key — set APP_STORE_CONNECT_API_KEY_ID/_ISSUER_ID/_PATH in .env") unless key
 
-    saved_path = ENV.delete("APP_STORE_CONNECT_API_KEY_PATH")
-    saved_id   = ENV.delete("APP_STORE_CONNECT_API_KEY_ID")
-    saved_iss  = ENV.delete("APP_STORE_CONNECT_API_ISSUER_ID")
-    begin
+    with_asc_api_key_env_cleared do
       upload_to_app_store(
         api_key: key,
         app_identifier: "com.magneton.copied",
@@ -1029,13 +1042,10 @@ platform :ios do
         skip_screenshots: false,
         skip_metadata: true,
         force: true,
-        overwrite_screenshots: true,
+        overwrite_screenshots: false,
+        run_precheck_before_submit: false,
         submit_for_review: false
       )
-    ensure
-      ENV["APP_STORE_CONNECT_API_KEY_PATH"] = saved_path
-      ENV["APP_STORE_CONNECT_API_KEY_ID"]   = saved_id
-      ENV["APP_STORE_CONNECT_API_ISSUER_ID"] = saved_iss
     end
   end
 end

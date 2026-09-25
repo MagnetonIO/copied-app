@@ -210,6 +210,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // UI stays stale.
         _ = SyncTicker.shared
 
+        #if DIRECT_DOWNLOAD
+        // Starts Sparkle only for website installs. Homebrew installs are
+        // detected by UpdateManager and intentionally leave Sparkle stopped.
+        _ = UpdateManager.shared
+        #endif
+
         // One-time fix: the old init code had a bug that set captureImages=false
         // in UserDefaults even though the user never toggled it. Reset to true
         // for users affected by this bug (key "didFixCaptureImagesDefault").
@@ -605,6 +611,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.target = self
         menu.addItem(settings)
 
+        #if DIRECT_DOWNLOAD
+        if UpdateManager.shared.channel == .directDownload {
+            let checkForUpdates = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(rightClickMenuCheckForUpdates),
+                keyEquivalent: ""
+            )
+            checkForUpdates.target = self
+            checkForUpdates.isEnabled = UpdateManager.shared.canCheckForUpdates
+            menu.addItem(checkForUpdates)
+        }
+        #endif
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -637,6 +656,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func rightClickMenuOpenSettings() {
         SettingsWindowController.shared.show()
     }
+
+    #if DIRECT_DOWNLOAD
+    @objc private func rightClickMenuCheckForUpdates() {
+        UpdateManager.shared.checkForUpdates()
+    }
+    #endif
 
     @objc private func rightClickMenuQuit() {
         NSApp.terminate(nil)

@@ -607,8 +607,10 @@ struct SettingsView: View {
     private var appVersion: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        #if MAS_BUILD
-        let variant = "Paid"
+        #if MAS_STOREFRONT
+        let variant = "Mac App Store"
+        #elseif LICENSE_STRIPE
+        let variant = "Direct"
         #else
         let variant = "OSS"
         #endif
@@ -677,6 +679,50 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
+            }
+
+            Section("Software Updates") {
+                #if MAS_STOREFRONT
+                LabeledContent("Managed by") {
+                    Text("Mac App Store")
+                        .foregroundStyle(.secondary)
+                }
+                #elseif DIRECT_DOWNLOAD
+                switch UpdateManager.shared.channel {
+                case .directDownload:
+                    Toggle(
+                        "Automatically check for updates",
+                        isOn: Binding(
+                            get: { UpdateManager.shared.automaticallyChecksForUpdates },
+                            set: { UpdateManager.shared.automaticallyChecksForUpdates = $0 }
+                        )
+                    )
+                    Toggle(
+                        "Download and install updates automatically",
+                        isOn: Binding(
+                            get: { UpdateManager.shared.automaticallyDownloadsUpdates },
+                            set: { UpdateManager.shared.automaticallyDownloadsUpdates = $0 }
+                        )
+                    )
+                    Button {
+                        UpdateManager.shared.checkForUpdates()
+                    } label: {
+                        Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(!UpdateManager.shared.canCheckForUpdates)
+
+                case .homebrew:
+                    LabeledContent("Managed by") {
+                        Text("Homebrew")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        UpdateManager.shared.copyHomebrewUpgradeCommand()
+                    } label: {
+                        Label("Copy Upgrade Command", systemImage: "doc.on.doc")
+                    }
+                }
+                #endif
             }
 
             Section("Legal") {
