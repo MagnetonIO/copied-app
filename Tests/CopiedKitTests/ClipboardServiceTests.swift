@@ -6,7 +6,7 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 
-@Suite("ClipboardService")
+@Suite("ClipboardService", .serialized)
 @MainActor
 struct ClipboardServiceTests {
 
@@ -26,6 +26,15 @@ struct ClipboardServiceTests {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         Issue.record("Timed out waiting for clipping")
+        throw CancellationError()
+    }
+
+    private func waitForCaptureCount(_ expected: Int, service: ClipboardService) async throws {
+        for _ in 0..<50 {
+            if service.captureCount >= expected { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        Issue.record("Timed out waiting for clipboard capture")
         throw CancellationError()
     }
 
@@ -88,7 +97,7 @@ struct ClipboardServiceTests {
     }
 
     @Test("Manual save captures clipboard text")
-    func manualSave() throws {
+    func manualSave() async throws {
         let service = ClipboardService()
         let ctx = try makeContext()
         service.configure(modelContext: ctx)
@@ -96,10 +105,12 @@ struct ClipboardServiceTests {
         // Put something on the clipboard
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString("test capture \(UUID())", forType: .string)
+        let text = "test capture \(UUID())"
+        pasteboard.setString(text, forType: .string)
 
         service.saveCurrentClipboard()
 
+        _ = try await waitForClipping(in: ctx) { $0.text == text }
         let fetched = try ctx.fetch(FetchDescriptor<Clipping>())
         #expect(fetched.count == 1)
         #expect(fetched.first?.text?.hasPrefix("test capture") == true)
@@ -177,6 +188,61 @@ struct ClipboardServiceTests {
         #expect(clip.imageHeight == Double(expectedSize.height))
     }
 
+    @Test("Image format is detected from bytes instead of pasteboard label")
+    func imageCaptureDetectsMislabelledJPEG() async throws {
+        let service = ClipboardService()
+        let ctx = try makeContext()
+        service.configure(modelContext: ctx)
+
+        let jpeg = try imageData(width: 31, height: 19, type: .jpeg)
+        let item = NSPasteboardItem()
+        item.setData(jpeg, forType: .tiff)
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+
+        service.saveCurrentClipboard()
+
+        let clip = try await waitForClipping(in: ctx) { $0.hasImage }
+        #expect(clip.imageFormat == "jpeg")
+        #expect(clip.imageData == jpeg)
+    }
+
+    @Test("Copied image writes do not discard the next external copy")
+    func selfWriteDoesNotDiscardNextExternalCopy() async throws {
+        let service = ClipboardService()
+        let ctx = try makeContext()
+        service.configure(modelContext: ctx)
+        service.start()
+        defer { service.stop() }
+
+        service.writeToPasteboard { pasteboard in
+            pasteboard.setString("copied self write", forType: .string)
+        }
+
+        let externalText = "claude selection \(UUID())"
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(externalText, forType: .string)
+        service.checkForPasteboardChanges()
+
+        let clip = try await waitForClipping(in: ctx) { $0.text == externalText }
+        #expect(clip.text == externalText)
+    }
+
+    @Test("JPEG clipboard data is normalized to PNG for interoperability")
+    func jpegNormalizesToPNGForPasteboard() throws {
+        let jpeg = try imageData(width: 21, height: 13, type: .jpeg)
+        let jpegSize = try imagePixelSize(jpeg)
+        let png = try #require(ClipboardService.pngDataForPasteboard(jpeg))
+
+        #expect(ClipboardService.detectedImageFormat(from: png) == "png")
+        let size = try imagePixelSize(png)
+        #expect(size.width == jpegSize.width)
+        #expect(size.height == jpegSize.height)
+    }
+
     @Test("Screenshot UI ignore does not drop text or URL copies")
     func screenshotUIIgnoreAllowsExplicitCopies() {
         let screenshotBundleID = "com.apple.screencaptureui"
@@ -247,7 +313,7 @@ struct ClipboardServiceTests {
     }
 
     @Test("Duplicate text is not saved twice")
-    func deduplication() throws {
+    func deduplication() async throws {
         let service = ClipboardService()
         let ctx = try makeContext()
         service.configure(modelContext: ctx)
@@ -260,12 +326,13 @@ struct ClipboardServiceTests {
         service.saveCurrentClipboard()
         service.saveCurrentClipboard()
 
+        _ = try await waitForClipping(in: ctx) { $0.text == text }
         let fetched = try ctx.fetch(FetchDescriptor<Clipping>())
         #expect(fetched.count == 1)
     }
 
     @Test("Different text creates separate clippings")
-    func differentText() throws {
+    func differentText() async throws {
         let service = ClipboardService()
         let ctx = try makeContext()
         service.configure(modelContext: ctx)
@@ -273,30 +340,34 @@ struct ClipboardServiceTests {
         let pasteboard = NSPasteboard.general
 
         pasteboard.clearContents()
-        pasteboard.setString("first \(UUID())", forType: .string)
+        let first = "first \(UUID())"
+        pasteboard.setString(first, forType: .string)
         service.saveCurrentClipboard()
+        _ = try await waitForClipping(in: ctx) { $0.text == first }
 
         pasteboard.clearContents()
-        pasteboard.setString("second \(UUID())", forType: .string)
+        let second = "second \(UUID())"
+        pasteboard.setString(second, forType: .string)
         service.saveCurrentClipboard()
+        _ = try await waitForClipping(in: ctx) { $0.text == second }
 
         let fetched = try ctx.fetch(FetchDescriptor<Clipping>())
         #expect(fetched.count == 2)
     }
 
     @Test("Captures source app metadata")
-    func capturesAppMetadata() throws {
+    func capturesAppMetadata() async throws {
         let service = ClipboardService()
         let ctx = try makeContext()
         service.configure(modelContext: ctx)
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString("app metadata test \(UUID())", forType: .string)
+        let text = "app metadata test \(UUID())"
+        pasteboard.setString(text, forType: .string)
         service.saveCurrentClipboard()
 
-        let fetched = try ctx.fetch(FetchDescriptor<Clipping>())
-        let clip = try #require(fetched.first)
+        let clip = try await waitForClipping(in: ctx) { $0.text == text }
 
         // Should have captured some device name
         #expect(!clip.deviceName.isEmpty)
@@ -305,7 +376,7 @@ struct ClipboardServiceTests {
     }
 
     @Test("History limit enforcement")
-    func historyLimit() throws {
+    func historyLimit() async throws {
         let service = ClipboardService(maxHistory: 3)
         let ctx = try makeContext()
         service.configure(modelContext: ctx)
@@ -321,9 +392,11 @@ struct ClipboardServiceTests {
         // Trigger enforcement by saving one more via the service
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString("overflow \(UUID())", forType: .string)
+        let overflow = "overflow \(UUID())"
+        pasteboard.setString(overflow, forType: .string)
         service.saveCurrentClipboard()
 
+        try await waitForCaptureCount(1, service: service)
         let fetched = try ctx.fetch(FetchDescriptor<Clipping>())
         #expect(fetched.count <= 4) // may be 3 or 4 depending on timing
     }

@@ -141,13 +141,29 @@ final class ClipperActionViewController: SLComposeServiceViewController {
             url: pageURL?.absoluteString,
             title: pageTitle,
             imageData: nil,
+            deviceName: UIDevice.current.name,
             source: .clipper
         )
 
         do {
             try SharedStore.enqueue(pending)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            guard SharedStore.extensionCloudSyncEnabled else {
+                extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+                return
+            }
+
+            Task { @MainActor in
+                do {
+                    try await SharedClippingCloudUploader.upload(
+                        pending,
+                        deviceName: UIDevice.current.name
+                    )
+                } catch {
+                    NSLog("CopiedClipperExtension: direct CloudKit upload failed: \(error)")
+                }
+                extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            }
         } catch {
             NSLog("CopiedClipperExtension: failed to enqueue: \(error)")
             let wrapped = NSError(

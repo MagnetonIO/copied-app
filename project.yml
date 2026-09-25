@@ -244,10 +244,17 @@ targets:
     type: app-extension
     platform: iOS
     deploymentTarget: "18.0"
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     sources:
       - CopiedShareExtension
     dependencies:
       - package: CopiedKit
+      - sdk: CloudKit.framework
       - sdk: UniformTypeIdentifiers.framework
     info:
       path: CopiedShareExtension/Info.plist
@@ -302,6 +309,10 @@ targets:
     entitlements:
       path: CopiedShareExtension/CopiedShareExtension.entitlements
       properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.magneton.Copied
+        com.apple.developer.icloud-services:
+          - CloudKit
         com.apple.security.application-groups:
           - group.com.magneton.copied
 
@@ -310,17 +321,25 @@ targets:
   # Safari-scoped action. ClipperPreprocess.js runs in the page context,
   # captures document.title / window.location.href / window.getSelection()
   # and passes them to native via NSExtensionJavaScriptPreprocessingResultsKey.
-  # The compose UI then saves a source:.clipper PendingClipping via the
-  # same App Group inbox drain as "Save to Copied".
+  # The compose UI persists a source:.clipper PendingClipping in the App
+  # Group inbox and, when paid sync is enabled, uploads it directly to the
+  # same CloudKit zone as the host app.
   # ──────────────────────────────────────────
   CopiedClipperExtension:
     type: app-extension
     platform: iOS
     deploymentTarget: "18.0"
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     sources:
       - CopiedClipperExtension
     dependencies:
       - package: CopiedKit
+      - sdk: CloudKit.framework
       - sdk: UniformTypeIdentifiers.framework
     info:
       path: CopiedClipperExtension/Info.plist
@@ -366,6 +385,10 @@ targets:
     entitlements:
       path: CopiedClipperExtension/CopiedClipperExtension.entitlements
       properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.magneton.Copied
+        com.apple.developer.icloud-services:
+          - CloudKit
         com.apple.security.application-groups:
           - group.com.magneton.copied
 

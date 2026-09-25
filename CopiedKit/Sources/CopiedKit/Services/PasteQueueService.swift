@@ -68,8 +68,9 @@ public final class PasteQueueService {
         if let url = clipping.url, let nsURL = URL(string: url) {
             pasteboard.setString(nsURL.absoluteString, forType: .URL)
         }
-        if let imageData = clipping.imageData {
-            pasteboard.setData(imageData, forType: .tiff)
+        if let imageData = clipping.imageData,
+           let pngData = ClipboardService.pngDataForPasteboard(imageData) {
+            pasteboard.setData(pngData, forType: .png)
         }
         if let rtfData = clipping.richTextData {
             pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
@@ -86,8 +87,9 @@ public final class PasteQueueService {
         if let urlString = clipping.url, let url = URL(string: urlString) {
             item[UTType.url.identifier] = url
         }
-        if let imageData = clipping.imageData {
-            item[UTType.png.identifier] = imageData
+        if let imageData = clipping.imageData,
+           let pngData = ClipboardService.pngDataForPasteboard(imageData) {
+            item[UTType.png.identifier] = pngData
         }
         UIPasteboard.general.setItems([item], options: [:])
         #endif

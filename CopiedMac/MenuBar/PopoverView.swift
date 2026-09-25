@@ -801,9 +801,9 @@ struct PopoverView: View {
                                     Button("Copy") { copyToClipboard(clipping) }
                                     if let text = clipping.text, !text.isEmpty {
                                         Button("Copy as Plain Text") {
-                                            clipboardService.skipNextCapture = true
-                                            NSPasteboard.general.clearContents()
-                                            NSPasteboard.general.setString(text, forType: .string)
+                                            clipboardService.writeToPasteboard { pasteboard in
+                                                pasteboard.setString(text, forType: .string)
+                                            }
                                             clipping.markUsed()
                                             try? modelContext.save()
                                             bumpLocalMutationTick()
@@ -1320,9 +1320,9 @@ struct PopoverView: View {
 
     private func copyTransformed(_ clipping: Clipping, transform: TextTransform) {
         guard let text = clipping.text else { return }
-        clipboardService.skipNextCapture = true
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transform.apply(text), forType: .string)
+        clipboardService.writeToPasteboard { pasteboard in
+            pasteboard.setString(transform.apply(text), forType: .string)
+        }
         clipping.markUsed()
         try? modelContext.save()
         bumpLocalMutationTick()
@@ -1337,12 +1337,11 @@ struct PopoverView: View {
             clippingID: clipping.clippingID,
             key: \Clipping.richTextData
         ) else { return }
-        clipboardService.skipNextCapture = true
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setData(rtfData, forType: clipping.richTextPasteboardType)
-        if let text = clipping.text {
-            pb.setString(text, forType: .string)
+        clipboardService.writeToPasteboard { pasteboard in
+            pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
+            if let text = clipping.text {
+                pasteboard.setString(text, forType: .string)
+            }
         }
         clipping.markUsed()
         try? modelContext.save()
@@ -1355,12 +1354,11 @@ struct PopoverView: View {
             clippingID: clipping.clippingID,
             key: \Clipping.htmlData
         ) else { return }
-        clipboardService.skipNextCapture = true
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setData(htmlData, forType: .html)
-        if let text = clipping.text {
-            pb.setString(text, forType: .string)
+        clipboardService.writeToPasteboard { pasteboard in
+            pasteboard.setData(htmlData, forType: .html)
+            if let text = clipping.text {
+                pasteboard.setString(text, forType: .string)
+            }
         }
         clipping.markUsed()
         try? modelContext.save()
@@ -1426,42 +1424,45 @@ struct PopoverView: View {
     }
 
     private func copyToClipboard(_ clipping: Clipping) {
-        // Tell the clipboard service to skip the next poll so it doesn't re-capture our own write
-        clipboardService.skipNextCapture = true
-
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-
-        if let text = clipping.text {
-            pasteboard.setString(text, forType: .string)
-        }
-        if let url = clipping.url {
-            pasteboard.setString(url, forType: .URL)
-        }
         // Blob fields go through ephemeral contexts — keeps `imageData` /
         // `richTextData` / `htmlData` bytes out of the shared mainContext
         // row cache after the pasteboard write. We only fetch the blobs the
         // model says exist (`hasImage` / `hasRichText` / `hasHTML`) so we
         // skip the fetch round-trip entirely for text-only clippings.
         let id = clipping.clippingID
-        if clipping.hasImage,
-           let imageData = ClipboardService.readBlob(
+        let imageData = clipping.hasImage
+            ? ClipboardService.readBlob(
                in: SharedData.container, clippingID: id, key: \Clipping.imageData
-           ) {
-            let type: NSPasteboard.PasteboardType = clipping.imageFormat == "png" ? .png : .tiff
-            pasteboard.setData(imageData, forType: type)
-        }
-        if clipping.hasRichText,
-           let rtfData = ClipboardService.readBlob(
+            )
+            : nil
+        let richTextData = clipping.hasRichText
+            ? ClipboardService.readBlob(
                in: SharedData.container, clippingID: id, key: \Clipping.richTextData
-           ) {
-            pasteboard.setData(rtfData, forType: clipping.richTextPasteboardType)
-        }
-        if clipping.hasHTML,
-           let htmlData = ClipboardService.readBlob(
+            )
+            : nil
+        let htmlData = clipping.hasHTML
+            ? ClipboardService.readBlob(
                in: SharedData.container, clippingID: id, key: \Clipping.htmlData
-           ) {
-            pasteboard.setData(htmlData, forType: .html)
+            )
+            : nil
+
+        clipboardService.writeToPasteboard { pasteboard in
+            if let text = clipping.text {
+                pasteboard.setString(text, forType: .string)
+            }
+            if let url = clipping.url {
+                pasteboard.setString(url, forType: .URL)
+            }
+            if let imageData,
+               let pngData = ClipboardService.pngDataForPasteboard(imageData) {
+                pasteboard.setData(pngData, forType: .png)
+            }
+            if let richTextData {
+                pasteboard.setData(richTextData, forType: clipping.richTextPasteboardType)
+            }
+            if let htmlData {
+                pasteboard.setData(htmlData, forType: .html)
+            }
         }
 
         clipping.markUsed()

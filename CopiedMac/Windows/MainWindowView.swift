@@ -816,32 +816,38 @@ private func copyClippingToPasteboard(
     _ clipping: Clipping,
     clipboardService: ClipboardService
 ) {
-    clipboardService.skipNextCapture = true
-    let pb = NSPasteboard.general
-    pb.clearContents()
-    if let text = clipping.text { pb.setString(text, forType: .string) }
-    if let url = clipping.url { pb.setString(url, forType: .URL) }
     // Blob fields go through ephemeral contexts so the bytes don't pin in
     // the main window's mainContext row cache after the pasteboard write.
     let id = clipping.clippingID
-    if clipping.hasImage,
-       let imageData = ClipboardService.readBlob(
+    let imageData = clipping.hasImage
+        ? ClipboardService.readBlob(
            in: SharedData.container, clippingID: id, key: \Clipping.imageData
-       ) {
-        let type: NSPasteboard.PasteboardType = clipping.imageFormat == "png" ? .png : .tiff
-        pb.setData(imageData, forType: type)
-    }
-    if clipping.hasRichText,
-       let rtfData = ClipboardService.readBlob(
+        )
+        : nil
+    let richTextData = clipping.hasRichText
+        ? ClipboardService.readBlob(
            in: SharedData.container, clippingID: id, key: \Clipping.richTextData
-       ) {
-        pb.setData(rtfData, forType: clipping.richTextPasteboardType)
-    }
-    if clipping.hasHTML,
-       let htmlData = ClipboardService.readBlob(
+        )
+        : nil
+    let htmlData = clipping.hasHTML
+        ? ClipboardService.readBlob(
            in: SharedData.container, clippingID: id, key: \Clipping.htmlData
-       ) {
-        pb.setData(htmlData, forType: .html)
+        )
+        : nil
+
+    clipboardService.writeToPasteboard { pasteboard in
+        if let text = clipping.text { pasteboard.setString(text, forType: .string) }
+        if let url = clipping.url { pasteboard.setString(url, forType: .URL) }
+        if let imageData,
+           let pngData = ClipboardService.pngDataForPasteboard(imageData) {
+            pasteboard.setData(pngData, forType: .png)
+        }
+        if let richTextData {
+            pasteboard.setData(richTextData, forType: clipping.richTextPasteboardType)
+        }
+        if let htmlData {
+            pasteboard.setData(htmlData, forType: .html)
+        }
     }
     clipping.markUsed()
 }
@@ -864,9 +870,9 @@ private func clippingContextMenuContent(
     }
     if let text = clipping.text, !text.isEmpty {
         Button("Copy as Plain Text") {
-            clipboardService.skipNextCapture = true
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            clipboardService.writeToPasteboard { pasteboard in
+                pasteboard.setString(text, forType: .string)
+            }
             clipping.markUsed()
         }
     }
@@ -880,9 +886,9 @@ private func clippingContextMenuContent(
                 clippingID: clipping.clippingID,
                 key: \Clipping.richTextData
             ) else { return }
-            clipboardService.skipNextCapture = true
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setData(rtf, forType: clipping.richTextPasteboardType)
+            clipboardService.writeToPasteboard { pasteboard in
+                pasteboard.setData(rtf, forType: clipping.richTextPasteboardType)
+            }
             clipping.markUsed()
         }
     }
@@ -893,9 +899,9 @@ private func clippingContextMenuContent(
                 clippingID: clipping.clippingID,
                 key: \Clipping.htmlData
             ) else { return }
-            clipboardService.skipNextCapture = true
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setData(html, forType: .html)
+            clipboardService.writeToPasteboard { pasteboard in
+                pasteboard.setData(html, forType: .html)
+            }
             clipping.markUsed()
         }
     }

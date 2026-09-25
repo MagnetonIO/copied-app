@@ -1,10 +1,10 @@
 import Foundation
 import SwiftData
 import Observation
+import ImageIO
 
 #if canImport(AppKit)
 import AppKit
-import ImageIO
 import AVFoundation
 #elseif canImport(UIKit)
 import UIKit
@@ -101,8 +101,6 @@ public final class ClipboardService {
     /// not remove block-based observers.
     private var pasteboardObserverToken: NSObjectProtocol?
     #endif
-    /// Set to true before writing to pasteboard, cleared after poll skips the self-write
-    public var skipNextCapture: Bool = false
     private var modelContext: ModelContext?
     private var maxHistoryOverride: Int?
 
@@ -118,6 +116,47 @@ public final class ClipboardService {
         self.maxHistoryOverride = maxHistory
         self.captureImages = UserDefaults.standard.object(forKey: "captureImages") as? Bool ?? true
         self.captureRichText = UserDefaults.standard.object(forKey: "captureRichText") as? Bool ?? true
+    }
+
+    /// Detect the encoded image format from the bytes themselves. Pasteboard
+    /// type labels and filename extensions are only hints; some providers
+    /// advertise JPEG bytes as TIFF, which produces files that downstream
+    /// apps reject when the extension and payload disagree.
+    nonisolated public static func detectedImageFormat(from data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let type = CGImageSourceGetType(source) as String? else {
+            return nil
+        }
+        switch type.lowercased() {
+        case "public.png": return "png"
+        case "public.jpeg", "public.jpeg-2000": return "jpeg"
+        case "public.tiff": return "tiff"
+        case "com.compuserve.gif": return "gif"
+        case "org.webmproject.webp": return "webp"
+        case "public.heic", "public.heif": return "heic"
+        default: return nil
+        }
+    }
+
+    /// Normalize encoded image data to PNG before publishing it to a
+    /// pasteboard. This keeps the declared pasteboard type aligned with the
+    /// payload and works across both app platforms.
+    nonisolated public static func pngDataForPasteboard(_ data: Data) -> Data? {
+        if detectedImageFormat(from: data) == "png" { return data }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            mutableData as CFMutableData,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return mutableData as Data
     }
 
     /// Canonical cache directory for QuickLook temp files
@@ -320,10 +359,13 @@ public final class ClipboardService {
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 // Tight cadence while the user is in the popover; relaxed
-                // when idle. Cuts background CPU/wakeups by 3× when the
-                // popover is closed, with a worst-case 1.5 s capture lag
-                // until the user opens it.
-                let interval = await MainActor.run { self?.popoverIsActive == true } ? 500 : 1500
+                // when idle. The shorter idle cadence is important for
+                // terminal selection-copy workflows, where several clipboard
+                // changes can happen before a slow poll observes any of them.
+                // Clipboard managers only get a change counter on macOS, not
+                // a change notification, so long intervals can miss quick
+                // successive select-to-copy updates entirely.
+                let interval = await MainActor.run { self?.popoverIsActive == true } ? 200 : 500
                 try? await Task.sleep(for: .milliseconds(interval))
                 guard !Task.isCancelled else { break }
                 await MainActor.run { self?.poll() }
@@ -373,10 +415,6 @@ public final class ClipboardService {
         let cc = UIPasteboard.general.changeCount
         guard cc != lastChangeCount else { return }
         lastChangeCount = cc
-        if skipNextCapture {
-            skipNextCapture = false
-            return
-        }
         captureFromUIPasteboard()
     }
     #endif
@@ -391,14 +429,30 @@ public final class ClipboardService {
         #endif
     }
 
+    #if canImport(AppKit)
+    /// Perform one app-owned pasteboard write and record its final change
+    /// count atomically on the main actor. This prevents the old boolean
+    /// skip flag from remaining armed and discarding the next real copy from
+    /// Terminal, Claude Code, or another app.
+    public func writeToPasteboard(_ writer: (NSPasteboard) -> Void) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        writer(pasteboard)
+        lastChangeCount = pasteboard.changeCount
+    }
+
+    /// Immediate check used by tests and explicit refresh paths. Normal Mac
+    /// capture still runs through the polling task.
+    public func checkForPasteboardChanges() {
+        poll()
+    }
+
+    #endif
+
     #if canImport(UIKit) && !canImport(AppKit)
     /// iOS-only: write `items` to `UIPasteboard.general` and record the
     /// resulting `changeCount` so the very next foreground check / observer
-    /// fire won't re-capture what we just wrote. Callers should use this
-    /// instead of `UIPasteboard.general.setItems(...)` + toggling
-    /// `skipNextCapture` — the old flag-based approach leaves the flag armed
-    /// if no notification fires (e.g. user copies elsewhere first), causing
-    /// the next legitimate capture to be silently dropped.
+    /// fire won't re-capture what we just wrote.
     @MainActor
     public func writeToPasteboard(_ items: [[String: Any]]) {
         UIPasteboard.general.setItems(items, options: [:])
@@ -520,11 +574,6 @@ public final class ClipboardService {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
-        // Skip captures triggered by our own copyToClipboard
-        if skipNextCapture {
-            skipNextCapture = false
-            return
-        }
         captureFromPasteboard(pasteboard)
     }
 
@@ -532,7 +581,7 @@ public final class ClipboardService {
     ///   A (main): pasteboard read → Sendable `CaptureInput` snapshot.
     ///   B (detached): image/video/RTF/HTML decode → `CaptureResult`.
     ///   C (main): build Clipping, dedup, insert, save.
-    /// `poll()` still advances lastChangeCount and clears skipNextCapture on main before us.
+    /// `poll()` still advances lastChangeCount on main before us.
     private func captureFromPasteboard(_ pasteboard: NSPasteboard) {
         guard let input = extractCaptureInput(from: pasteboard) else { return }
         let captureImages = self.captureImages
@@ -746,7 +795,7 @@ public final class ClipboardService {
                 result.hasImage = true
             } else if let tiff = input.tiffData {
                 result.imageData = tiff
-                result.imageFormat = "tiff"
+                result.imageFormat = detectedImageFormat(from: tiff) ?? "tiff"
                 result.imageByteCount = tiff.count
                 result.hasImage = true
             }
@@ -950,15 +999,16 @@ public final class ClipboardService {
         guard Self.imageExtensions.contains(ext) else { return nil }
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
 
-        let format: String
-        switch ext {
-        case "png": format = "png"
-        case "jpg", "jpeg": format = "jpeg"
-        case "gif": format = "gif"
-        case "webp": format = "webp"
-        case "heic": format = "heic"
-        default: format = "tiff"
-        }
+        let format = detectedImageFormat(from: data) ?? {
+            switch ext {
+            case "png": return "png"
+            case "jpg", "jpeg": return "jpeg"
+            case "gif": return "gif"
+            case "webp": return "webp"
+            case "heic": return "heic"
+            default: return "tiff"
+            }
+        }()
         return FileImageData(data: data, format: format)
     }
     #endif

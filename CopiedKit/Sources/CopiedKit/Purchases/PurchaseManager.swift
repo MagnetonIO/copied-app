@@ -129,6 +129,10 @@ public final class PurchaseManager {
 
     private func setPremium(_ value: Bool) {
         UserDefaults.standard.set(value, forKey: Self.purchasedKey)
+        #if os(iOS)
+        let enabled = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        SharedStore.updateExtensionCloudSyncAccess(purchased: value, enabled: enabled)
+        #endif
     }
 
     /// Long-lived listener for post-launch purchases, Ask-to-Buy approvals, refunds,

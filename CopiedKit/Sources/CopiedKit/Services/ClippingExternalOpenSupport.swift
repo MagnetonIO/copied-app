@@ -122,7 +122,9 @@ public enum ClippingExternalOpenSupport {
                   ) else { return false }
             return writeAndOpen(
                 data,
-                fileExtension: imageFileExtension(forFormat: clipping.imageFormat),
+                fileExtension: imageFileExtension(
+                    forFormat: ClipboardService.detectedImageFormat(from: data) ?? clipping.imageFormat
+                ),
                 prefix: "image"
             )
         case .richText:

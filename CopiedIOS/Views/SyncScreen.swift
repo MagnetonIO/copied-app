@@ -75,6 +75,18 @@ struct SyncScreen: View {
         .tint(.copiedTeal)
         .preferredColorScheme(.dark)
         .task { await pm.loadProduct() }
+        .onChange(of: purchased) { _, newValue in
+            SharedStore.updateExtensionCloudSyncAccess(
+                purchased: newValue,
+                enabled: cloudSyncEnabled
+            )
+        }
+        .onChange(of: cloudSyncEnabled) { _, newValue in
+            SharedStore.updateExtensionCloudSyncAccess(
+                purchased: purchased,
+                enabled: newValue
+            )
+        }
         .onChange(of: licenseBanner) { _, new in
             // `LicenseEntrySheet` dismisses itself on success; we observe
             // the banner string set by `SettingsSheet` so the sync screen

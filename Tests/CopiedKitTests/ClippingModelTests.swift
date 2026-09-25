@@ -74,7 +74,7 @@ struct ClippingModelTests {
 
         // Final fallback
         let c5 = Clipping()
-        #expect(c5.displayTitle == "Empty Clipping")
+        #expect(c5.displayTitle == "(content missing)")
     }
 
     @Test("Soft delete (trash) and restore")

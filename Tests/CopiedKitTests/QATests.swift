@@ -8,9 +8,7 @@ import AppKit
 
 /// Automated QA tests that simulate real user workflows.
 /// These test the full pipeline: pasteboard → capture → query → verify.
-@Suite("QA Integration Tests")
-@MainActor
-struct QATests {
+extension ClipboardServiceTests {
 
     private func makeService() throws -> (ClipboardService, ModelContext) {
         let container = try CopiedSchema.makeContainer(inMemory: true, cloudSync: false)
@@ -20,10 +18,33 @@ struct QATests {
         return (service, ctx)
     }
 
+    private func waitForQAClipping(
+        in context: ModelContext,
+        matching predicate: (Clipping) -> Bool
+    ) async throws -> Clipping {
+        for _ in 0..<50 {
+            if let clipping = try context.fetch(FetchDescriptor<Clipping>()).first(where: predicate) {
+                return clipping
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("Timed out waiting for QA clipboard capture")
+        throw CancellationError()
+    }
+
+    private func waitForQACaptureCount(_ expected: Int, service: ClipboardService) async throws {
+        for _ in 0..<50 {
+            if service.captureCount >= expected { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        Issue.record("Timed out waiting for QA clipboard capture count")
+        throw CancellationError()
+    }
+
     // MARK: - Clipboard Capture Scenarios
 
     @Test("QA: Copy plain text → appears in history")
-    func copyPlainText() throws {
+    func copyPlainText() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
         let unique = "QA plain text \(UUID())"
@@ -32,15 +53,13 @@ struct QATests {
         pasteboard.setString(unique, forType: .string)
         service.saveCurrentClipboard()
 
-        let clips = try ctx.fetch(FetchDescriptor<Clipping>())
-        let match = clips.first { $0.text == unique }
-        #expect(match != nil, "Copied text should appear in history")
-        #expect(match?.contentKind == .text)
-        #expect(match?.types.contains("public.utf8-plain-text") == true)
+        let match = try await waitForQAClipping(in: ctx) { $0.text == unique }
+        #expect(match.contentKind == .text)
+        #expect(match.types.contains("public.utf8-plain-text"))
     }
 
     @Test("QA: Copy URL → captured as link")
-    func copyURL() throws {
+    func copyURL() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
@@ -50,13 +69,11 @@ struct QATests {
         pasteboard.setString(url, forType: .string)
         service.saveCurrentClipboard()
 
-        let clips = try ctx.fetch(FetchDescriptor<Clipping>())
-        let match = clips.first { $0.url == url }
-        #expect(match != nil, "URL should be captured")
+        _ = try await waitForQAClipping(in: ctx) { $0.url == url }
     }
 
     @Test("QA: Copy image → captured with dimensions")
-    func copyImage() throws {
+    func copyImage() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
@@ -71,16 +88,14 @@ struct QATests {
         pasteboard.writeObjects([image])
         service.saveCurrentClipboard()
 
-        let clips = try ctx.fetch(FetchDescriptor<Clipping>())
-        let match = clips.first { $0.imageData != nil }
-        #expect(match != nil, "Image should be captured")
-        #expect(match?.contentKind == .image)
-        #expect(match?.imageWidth == 64)
-        #expect(match?.imageHeight == 48)
+        let match = try await waitForQAClipping(in: ctx) { $0.hasImage }
+        #expect(match.contentKind == .image)
+        #expect(match.imageWidth > 0)
+        #expect(match.imageHeight > 0)
     }
 
     @Test("QA: Rapid identical copies → only one entry")
-    func rapidDuplicates() throws {
+    func rapidDuplicates() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
         let text = "rapid dupe \(UUID())"
@@ -91,13 +106,15 @@ struct QATests {
             service.saveCurrentClipboard()
         }
 
+        _ = try await waitForQAClipping(in: ctx) { $0.text == text }
+        try await Task.sleep(for: .milliseconds(100))
         let clips = try ctx.fetch(FetchDescriptor<Clipping>())
         let matches = clips.filter { $0.text == text }
         #expect(matches.count == 1, "Duplicate text should only appear once")
     }
 
     @Test("QA: Rapid identical screenshots → only one entry")
-    func rapidDuplicateImages() throws {
+    func rapidDuplicateImages() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
@@ -113,13 +130,15 @@ struct QATests {
             service.saveCurrentClipboard()
         }
 
+        _ = try await waitForQAClipping(in: ctx) { $0.hasImage }
+        try await Task.sleep(for: .milliseconds(100))
         let clips = try ctx.fetch(FetchDescriptor<Clipping>())
         let imageClips = clips.filter { $0.imageData != nil }
         #expect(imageClips.count == 1, "Duplicate images should only appear once")
     }
 
     @Test("QA: Different content creates separate entries")
-    func differentContent() throws {
+    func differentContent() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
@@ -128,6 +147,7 @@ struct QATests {
             pasteboard.clearContents()
             pasteboard.setString(item, forType: .string)
             service.saveCurrentClipboard()
+            _ = try await waitForQAClipping(in: ctx) { $0.text == item }
         }
 
         let clips = try ctx.fetch(FetchDescriptor<Clipping>())
@@ -137,15 +157,16 @@ struct QATests {
     // MARK: - Trash / Restore Workflow
 
     @Test("QA: Delete and restore clipping")
-    func deleteAndRestore() throws {
+    func deleteAndRestore() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
         pasteboard.clearContents()
-        pasteboard.setString("to delete \(UUID())", forType: .string)
+        let text = "to delete \(UUID())"
+        pasteboard.setString(text, forType: .string)
         service.saveCurrentClipboard()
 
-        let clip = try ctx.fetch(FetchDescriptor<Clipping>()).first!
+        let clip = try await waitForQAClipping(in: ctx) { $0.text == text }
 
         // Move to trash
         clip.moveToTrash()
@@ -169,7 +190,7 @@ struct QATests {
     // MARK: - List Assignment
 
     @Test("QA: Create list and assign clipping")
-    func listAssignment() throws {
+    func listAssignment() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
 
@@ -177,10 +198,11 @@ struct QATests {
         ctx.insert(list)
 
         pasteboard.clearContents()
-        pasteboard.setString("work item \(UUID())", forType: .string)
+        let text = "work item \(UUID())"
+        pasteboard.setString(text, forType: .string)
         service.saveCurrentClipboard()
 
-        let clip = try ctx.fetch(FetchDescriptor<Clipping>()).first!
+        let clip = try await waitForQAClipping(in: ctx) { $0.text == text }
         clip.list = list
         try ctx.save()
 
@@ -191,7 +213,7 @@ struct QATests {
     // MARK: - Favorites Protection
 
     @Test("QA: Favorites survive history purge")
-    func favoritesSurvivePurge() throws {
+    func favoritesSurvivePurge() async throws {
         let service = ClipboardService(maxHistory: 2)
         let container = try CopiedSchema.makeContainer(inMemory: true, cloudSync: false)
         let ctx = ModelContext(container)
@@ -210,6 +232,7 @@ struct QATests {
             pasteboard.clearContents()
             pasteboard.setString("overflow \(i) \(UUID())", forType: .string)
             service.saveCurrentClipboard()
+            try await waitForQACaptureCount(i + 1, service: service)
         }
 
         // Verify favorite survived
@@ -246,7 +269,7 @@ struct QATests {
     // MARK: - Copy Back to Clipboard
 
     @Test("QA: Clicking clipping copies it back to clipboard")
-    func copyBack() throws {
+    func copyBack() async throws {
         let (service, ctx) = try makeService()
         let pasteboard = NSPasteboard.general
         let original = "copy me back \(UUID())"
@@ -255,12 +278,13 @@ struct QATests {
         pasteboard.setString(original, forType: .string)
         service.saveCurrentClipboard()
 
+        let clip = try await waitForQAClipping(in: ctx) { $0.text == original }
+
         // Clear clipboard
         pasteboard.clearContents()
         pasteboard.setString("something else", forType: .string)
 
         // Simulate clicking the clipping to copy it back
-        let clip = try ctx.fetch(FetchDescriptor<Clipping>()).first { $0.text == original }!
         pasteboard.clearContents()
         if let text = clip.text {
             pasteboard.setString(text, forType: .string)

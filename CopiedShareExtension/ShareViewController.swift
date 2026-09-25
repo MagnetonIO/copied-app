@@ -9,10 +9,11 @@ import CopiedKit
 /// thumbnail, editable text box, Cancel / Post buttons) for free. We parse
 /// `extensionContext.inputItems` up front so `isContentValid` can reflect
 /// whatever the user is sharing, and `didSelectPost` writes one
-/// `PendingClipping` to the App Group inbox. The host app drains the inbox on
-/// `ScenePhase.active` and inserts rows into SwiftData there, so the
-/// extension never opens the SwiftData container itself (cross-process
-/// SwiftData access is unsupported).
+/// `PendingClipping` to the App Group inbox. For paid sync users it also saves
+/// a canonical CKRecord directly, allowing other devices to receive the share
+/// while the host app remains suspended. The host later drains the inbox into
+/// SwiftData, so offline shares remain durable and the extension never opens
+/// the cross-process SwiftData container.
 final class ShareViewController: SLComposeServiceViewController {
 
     private var sharedURL: URL?
@@ -137,6 +138,7 @@ final class ShareViewController: SLComposeServiceViewController {
             url: sharedURL?.absoluteString,
             title: sharedTitle,
             imageData: sharedImageData,
+            deviceName: UIDevice.current.name,
             source: .share
         )
 
@@ -145,7 +147,24 @@ final class ShareViewController: SLComposeServiceViewController {
             // Subtle tactile confirmation before the sheet dismisses —
             // matches Apple Notes / Mail / Twitter share-extension UX.
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            guard SharedStore.extensionCloudSyncEnabled else {
+                extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+                return
+            }
+
+            Task { @MainActor in
+                do {
+                    try await SharedClippingCloudUploader.upload(
+                        pending,
+                        deviceName: UIDevice.current.name
+                    )
+                } catch {
+                    // The App Group inbox is durable, so the host can retry
+                    // through its normal sync engine the next time it opens.
+                    NSLog("CopiedShareExtension: direct CloudKit upload failed: \(error)")
+                }
+                extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            }
         } catch {
             NSLog("CopiedShareExtension: failed to enqueue: \(error)")
             let wrapped = NSError(

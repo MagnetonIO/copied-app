@@ -1,14 +1,14 @@
 import Foundation
 
-/// Inbox queue shared between the host iOS app and the Share Extension via
+/// Durable inbox queue shared between the host iOS app and its extensions via
 /// the `group.com.magneton.copied` App Group container.
 ///
 /// We deliberately do **not** share the SwiftData store directly: the main
-/// store is backed by CloudKit (NSPersistentCloudKitContainer), which expects
-/// to own its store URL and can't be pointed at an App Group path without
-/// losing sync. So the extension writes a tiny JSON file per capture into an
-/// inbox directory, and the host drains the inbox into its SwiftData store
-/// on `ScenePhase.active`.
+/// store is backed by CloudKit and cannot safely be opened cross-process. Each
+/// extension writes a JSON entry first, then may also upload its canonical
+/// CKRecord directly. The host drains the inbox into SwiftData on
+/// `ScenePhase.active`, which preserves local delivery and retries if the
+/// extension had no network or CloudKit runtime.
 public enum SharedStore {
     public static let appGroupIdentifier = "group.com.magneton.copied"
 
@@ -22,6 +22,7 @@ public enum SharedStore {
         public let url: String?
         public let title: String?
         public let imageData: Data?
+        public let deviceName: String?
         /// Hint for the host so it can route a Copied Browser share into the
         /// in-app browser instead of the default "save to history" path.
         public let source: Source
@@ -39,6 +40,7 @@ public enum SharedStore {
             url: String? = nil,
             title: String? = nil,
             imageData: Data? = nil,
+            deviceName: String? = nil,
             source: Source
         ) {
             self.id = id
@@ -47,6 +49,7 @@ public enum SharedStore {
             self.url = url
             self.title = title
             self.imageData = imageData
+            self.deviceName = deviceName
             self.source = source
         }
     }
@@ -154,4 +157,19 @@ public enum SharedStore {
     public nonisolated(unsafe) static let defaults: UserDefaults = {
         UserDefaults(suiteName: appGroupIdentifier) ?? .standard
     }()
+
+    private static let cloudSyncPurchasedKey = "extensionCloudSyncPurchased"
+    private static let cloudSyncEnabledKey = "extensionCloudSyncEnabled"
+
+    /// The host mirrors its purchase and sync-toggle state here because app
+    /// extensions cannot read the host application's standard defaults.
+    public static var extensionCloudSyncEnabled: Bool {
+        defaults.bool(forKey: cloudSyncPurchasedKey)
+            && (defaults.object(forKey: cloudSyncEnabledKey) as? Bool ?? true)
+    }
+
+    public static func updateExtensionCloudSyncAccess(purchased: Bool, enabled: Bool) {
+        defaults.set(purchased, forKey: cloudSyncPurchasedKey)
+        defaults.set(enabled, forKey: cloudSyncEnabledKey)
+    }
 }

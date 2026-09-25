@@ -90,12 +90,17 @@ struct RootNavigator: View {
             let clip = Clipping(
                 text: item.text,
                 title: item.title,
-                url: item.url
+                url: item.url,
+                deviceName: item.deviceName ?? UIDevice.current.name
             )
+            clip.clippingID = item.id
+            clip.addDate = item.createdAt
+            clip.modifiedDate = item.createdAt
             if let data = item.imageData {
                 clip.imageData = data
                 clip.hasImage = true
                 clip.imageByteCount = data.count
+                clip.imageFormat = ClipboardService.detectedImageFormat(from: data) ?? "tiff"
             }
             if outcome.markFavorite { clip.isFavorite = true }
             if let listID = outcome.routeToListID {

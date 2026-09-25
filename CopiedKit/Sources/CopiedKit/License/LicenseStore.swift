@@ -18,6 +18,10 @@ public enum LicenseStore {
         let payload = try LicenseValidator.verify(license: license)
         try save(license: license)
         UserDefaults.standard.set(true, forKey: purchasedFlagKey)
+        #if os(iOS)
+        let enabled = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        SharedStore.updateExtensionCloudSyncAccess(purchased: true, enabled: enabled)
+        #endif
         return payload
     }
 
@@ -28,9 +32,16 @@ public enum LicenseStore {
     public static func refreshFromKeychain() -> Bool {
         guard let license = load(), let _ = try? LicenseValidator.verify(license: license) else {
             UserDefaults.standard.set(false, forKey: purchasedFlagKey)
+            #if os(iOS)
+            SharedStore.updateExtensionCloudSyncAccess(purchased: false, enabled: true)
+            #endif
             return false
         }
         UserDefaults.standard.set(true, forKey: purchasedFlagKey)
+        #if os(iOS)
+        let enabled = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        SharedStore.updateExtensionCloudSyncAccess(purchased: true, enabled: enabled)
+        #endif
         return true
     }
 
@@ -42,6 +53,9 @@ public enum LicenseStore {
         ]
         SecItemDelete(query as CFDictionary)
         UserDefaults.standard.set(false, forKey: purchasedFlagKey)
+        #if os(iOS)
+        SharedStore.updateExtensionCloudSyncAccess(purchased: false, enabled: true)
+        #endif
     }
 
     // MARK: - Keychain primitives

@@ -10,6 +10,7 @@
 		026BF138D0C40A252AA265BC /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		046575326421682114D85DCB /* ClippingModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */; };
 		08689498DC466E3E15391BE9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5B97AF7289040AD52E89380D /* PrivacyInfo.xcprivacy */; };
+		0D816BAF544C34FD9F65B756 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		16498CACA732AE9498044B61 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7BAF822866372C0A8E61D86 /* CopiedKit */; };
 		1ADBD9AE0A2552057FB41CA1 /* IOSContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E7F9BDEBDC0D938D2DA15B /* IOSContentView.swift */; };
 		2424BE107C81564D9544F7D3 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 12BA8D72684F91B1163A3BF6 /* CopiedKit */; };
@@ -26,6 +27,7 @@
 		4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253D7474DF1C1851733BBD77 /* QATests.swift */; };
 		5B3A35722BA87BCA1F0984DE /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 65F01B69873E194D68E0BDF5 /* CopiedKit */; };
 		5B6FFBCAACE8C2FCBB010D06 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 83A903B7F63DBF1CD891CB44 /* PrivacyInfo.xcprivacy */; };
+		5DBFB8C5F2872EE231E65C14 /* SharedClippingCloudUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */; };
 		633B1A5F62F48594C2B847FE /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		6A0129B57D1D871B1AA5089C /* SyncScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DBD092BADC5A5DB49DD558 /* SyncScreen.swift */; };
 		6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B039D4406990AB5444E169A /* PopoverClippingCard.swift */; };
@@ -53,6 +55,7 @@
 		BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A621629EB1423A7F5305E1 /* PopoverView.swift */; };
 		C17EA098895F9894B07B80A7 /* InterfaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A4114F0D078DA4FF7B6D6E /* InterfaceSettingsView.swift */; };
 		C28D31C08B3BFDBD26E59062 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 2FBDD82222D737FEE0F7BF19 /* PrivacyInfo.xcprivacy */; };
+		C6421964781358817D1C03D8 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		C692415D1F0772167C9B1932 /* RulesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6F34BD526DA88B2B1DC503 /* RulesSettingsView.swift */; };
 		CA3E412595269BBC26BA83D8 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7AB64045D6A6D4D97A446C0 /* ShareViewController.swift */; };
 		CB01813FB853F5BBB9FFD0D8 /* ClipperPreprocess.js in Resources */ = {isa = PBXBuildFile; fileRef = 91AA07497DF33BF48D307F31 /* ClipperPreprocess.js */; };
@@ -119,6 +122,7 @@
 		0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		177577A5DA3E115A8224EF87 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		19AD031F35C5A7AA963F23D5 /* ClippingSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingSortOrder.swift; sourceTree = "<group>"; };
+		2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedClippingCloudUploaderTests.swift; sourceTree = "<group>"; };
 		236B7D8EE54675D2314DC136 /* ListsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListsScreen.swift; sourceTree = "<group>"; };
 		253D7474DF1C1851733BBD77 /* QATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QATests.swift; sourceTree = "<group>"; };
 		294BCC0938D4BD6227DD3159 /* CopiedIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CopiedIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -211,6 +215,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5B3A35722BA87BCA1F0984DE /* CopiedKit in Frameworks */,
+				0D816BAF544C34FD9F65B756 /* CloudKit.framework in Frameworks */,
 				F7B50FECD3043234F8C9618A /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -220,6 +225,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7E42D6444766F93DCB289829 /* CopiedKit in Frameworks */,
+				C6421964781358817D1C03D8 /* CloudKit.framework in Frameworks */,
 				DFD6BE1E71C872610E6D38D3 /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -385,6 +391,7 @@
 				B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */,
 				3A402C52089CDB3C6E28A019 /* PasteQueueTests.swift */,
 				253D7474DF1C1851733BBD77 /* QATests.swift */,
+				2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */,
 			);
 			name = CopiedKitTests;
 			path = Tests/CopiedKitTests;
@@ -547,15 +554,17 @@
 					246B4BCC68C76E0FB02B4FCC = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1]]";
 					};
 					520AD34CEF71A26CAEC95AC1 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = "[\"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 					67CF2DC485C5993966B494D7 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 					BCFE06295783F2744BA56339 = {
 						DevelopmentTeam = 7727LYTG96;
@@ -585,11 +594,11 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				246B4BCC68C76E0FB02B4FCC /* CopiedClipperExtension */,
-				F47662F6E87A5A3AD6388873 /* CopiedIOS */,
-				BCFE06295783F2744BA56339 /* CopiedKitTests */,
 				67CF2DC485C5993966B494D7 /* CopiedMac */,
+				F47662F6E87A5A3AD6388873 /* CopiedIOS */,
 				520AD34CEF71A26CAEC95AC1 /* CopiedShareExtension */,
+				246B4BCC68C76E0FB02B4FCC /* CopiedClipperExtension */,
+				BCFE06295783F2744BA56339 /* CopiedKitTests */,
 			);
 		};
 /* End PBXProject section */
@@ -670,6 +679,7 @@
 				AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */,
 				385697753C3F1DA87A70ADC3 /* PasteQueueTests.swift in Sources */,
 				4FA451349386A2EBB6B54D97 /* QATests.swift in Sources */,
+				5DBFB8C5F2872EE231E65C14 /* SharedClippingCloudUploaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

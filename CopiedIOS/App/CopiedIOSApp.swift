@@ -113,6 +113,10 @@ struct CopiedIOSApp: App {
             "retentionDays": 30,
             "trashRetentionDays": 30
         ])
+        SharedStore.updateExtensionCloudSyncAccess(
+            purchased: UserDefaults.standard.bool(forKey: PurchaseManager.purchasedKey),
+            enabled: UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        )
 
         #if MAS_STOREFRONT
         // Start the Transaction.updates listener immediately so Ask-to-Buy
