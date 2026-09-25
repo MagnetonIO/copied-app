@@ -681,7 +681,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
-            Section("Software Updates") {
+            Section("Updates") {
                 #if MAS_STOREFRONT
                 LabeledContent("Managed by") {
                     Text("Mac App Store")
@@ -690,6 +690,10 @@ struct SettingsView: View {
                 #elseif DIRECT_DOWNLOAD
                 switch UpdateManager.shared.channel {
                 case .directDownload:
+                    LabeledContent("Managed by") {
+                        Text("Copied")
+                            .foregroundStyle(.secondary)
+                    }
                     Toggle(
                         "Automatically check for updates",
                         isOn: Binding(
@@ -716,10 +720,20 @@ struct SettingsView: View {
                         Text("Homebrew")
                             .foregroundStyle(.secondary)
                     }
-                    Button {
-                        UpdateManager.shared.copyHomebrewUpgradeCommand()
-                    } label: {
-                        Label("Copy Upgrade Command", systemImage: "doc.on.doc")
+                    HStack(spacing: 10) {
+                        Text(UpdateManager.homebrewUpgradeCommand)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Spacer(minLength: 8)
+                        Button {
+                            UpdateManager.shared.copyHomebrewUpgradeCommand()
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Copy upgrade command")
                     }
                 }
                 #endif
