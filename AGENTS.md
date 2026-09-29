@@ -83,14 +83,24 @@ After building a replacement PKG, sign that exact artifact and copy the emitted
 signature and length into the appcast enclosure:
 
 ```sh
-/tmp/copied-sparkle-2.10/bin/sign_update \
+SPARKLE_SIGN_UPDATE=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update' -print -quit)
+"$SPARKLE_SIGN_UPDATE" \
   --account com.magneton.copied \
   build/license/Copied-vX.Y.Z.pkg
 ```
 
 Also update the appcast `sparkle:version`, `sparkle:shortVersionString`, URL,
-and release notes. Update the Homebrew cask version and SHA-256 when either
-changes. Publish in this order to avoid a live feed referencing the wrong bytes:
+and release notes. Every shipped patch must increment `CFBundleVersion`, even
+when the marketing version stays the same. Give the update artifact an immutable
+name such as `Copied-v1.3.3-build14.pkg`; the legacy `Copied-v1.3.3.pkg` may still
+be overwritten for the website's download button, but the appcast and Homebrew
+cask must point to the immutable asset. Otherwise replacing that file breaks
+older appcast signatures and Homebrew caches while deployments propagate.
+
+Use a composite Homebrew version such as `"1.3.3,14"` and interpolate
+`version.csv.first` / `version.csv.second` for the marketing version / build
+number in the asset filename. Update its SHA-256 for the exact published bytes.
+This lets `brew upgrade` recognize same-version patches. Publish in this order:
 
 1. Upload the new PKG to the GitHub release with `--clobber`.
 2. Commit and push the Homebrew cask update.

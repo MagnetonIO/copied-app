@@ -80,6 +80,10 @@ struct MainWindowView: View {
         }
         .searchable(text: $searchText, placement: .sidebar, prompt: "Search all clippings…")
         .toolbar { toolbar }
+        .modifier(MainWindowCopyCommands(canCopy: selectedClippings.count == 1) {
+            guard let clipping = selectedClippings.first else { return }
+            copyClippingToPasteboard(clipping, clipboardService: clipboardService)
+        })
         .onAppear {
             syncProfileLogger.log("trigger mainWindow.onAppear")
             // Pick up a pre-seeded query from the URL scheme (copied://search?q=…).
@@ -447,6 +451,83 @@ struct MainWindowView: View {
             pendingClippingForListAssignment = clipping
             newListNameDraft = ""
             isNamingNewList = true
+        }
+    }
+}
+
+/// Registers the selected clipping with the native responder chain, so text
+/// editors still handle Copy themselves when they own keyboard focus.
+struct MainWindowCopyCommands: ViewModifier {
+    let canCopy: Bool
+    let copy: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .background(MainWindowCopyResponder(canCopy: canCopy, copy: copy)
+                .frame(width: 0, height: 0))
+            .onKeyPress("c", phases: .down) { press in
+                guard press.modifiers == .control, canCopy else { return .ignored }
+                copy()
+                return .handled
+            }
+    }
+}
+
+private struct MainWindowCopyResponder: NSViewRepresentable {
+    let canCopy: Bool
+    let copy: () -> Void
+
+    func makeNSView(context: Context) -> CopyResponderAnchor {
+        CopyResponderAnchor()
+    }
+
+    func updateNSView(_ view: CopyResponderAnchor, context: Context) {
+        view.copyResponder.canCopy = canCopy
+        view.copyResponder.copySelection = copy
+    }
+
+    static func dismantleNSView(_ view: CopyResponderAnchor, coordinator: ()) {
+        view.detach()
+    }
+
+    final class CopyResponderAnchor: NSView {
+        let copyResponder = SelectionCopyResponder()
+        private weak var attachedWindow: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            detach()
+            guard let window else { return }
+            copyResponder.nextResponder = window.nextResponder
+            window.nextResponder = copyResponder
+            attachedWindow = window
+        }
+
+        func detach() {
+            if attachedWindow?.nextResponder === copyResponder {
+                attachedWindow?.nextResponder = copyResponder.nextResponder
+            }
+            copyResponder.nextResponder = nil
+            attachedWindow = nil
+        }
+    }
+
+    final class SelectionCopyResponder: NSResponder, NSUserInterfaceValidations {
+        var canCopy = false
+        var copySelection: (() -> Void)?
+
+        @objc func copy(_ sender: Any?) {
+            guard canCopy else { return }
+            copySelection?()
+        }
+
+        override func responds(to selector: Selector!) -> Bool {
+            if selector == #selector(NSText.copy(_:)) { return canCopy }
+            return super.responds(to: selector)
+        }
+
+        func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(NSText.copy(_:)) && canCopy
         }
     }
 }
