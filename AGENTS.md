@@ -126,11 +126,22 @@ and relaunches Copied. A build cannot offer itself as an update.
 
 Homebrew installs are detected from the cask receipt under
 `/opt/homebrew/Caskroom/copied` or `/usr/local/Caskroom/copied`. Copied disables
-Sparkle for that channel and shows:
+Sparkle for that channel. About -> Updates checks in the background using
+`brew update --quiet` and `brew info --cask --json=v2 magnetonio/tap/copied`.
+It does not upgrade anything during a check. When an update is available,
+**Install with Homebrew** opens a fixed `.command` in Terminal so the PKG
+installer can request an administrator password. The upgrade command remains
+visible and copyable:
 
 ```sh
 brew upgrade --cask magnetonio/tap/copied
 ```
+
+**About Copied** in the popover menu, status-item context menu, and application
+menu opens Settings directly to About, including when Settings is already open.
+Website builds use Sparkle and show update status inline; App Store/TestFlight
+builds remain store-managed. Verify updater UI and delegate behavior with
+`xcodebuild -project Copied.xcodeproj -scheme CopiedMacDirect -destination 'platform=macOS' test`.
 
 ## TestFlight Builds
 

@@ -627,6 +627,12 @@ struct PopoverView: View {
         Button("Settings…") {
             SettingsWindowController.shared.show()
         }
+        Button("About Copied…") {
+            dismissPopover()
+            DispatchQueue.main.async {
+                SettingsWindowController.shared.show(tab: 4)
+            }
+        }
         Divider()
         Button(clipboardService.isMonitoring ? "Pause Monitoring" : "Resume Monitoring") {
             if clipboardService.isMonitoring {

@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+@Observable
+final class SettingsNavigation {
+    static let shared = SettingsNavigation()
+    var selectedTab = 0
+}
+
 /// AppKit-controlled Settings window. Replaces SwiftUI's `Settings { }` scene
 /// because that scene's prefs-panel NSWindow kept snapping back to its original
 /// origin during fast drags (a SwiftUI layout/feedback-loop quirk), and its
@@ -35,7 +42,8 @@ final class SettingsWindowController: NSObject {
     }
 
     /// Bring the Settings window to front.
-    func show() {
+    func show(tab: Int? = nil) {
+        if let tab { SettingsNavigation.shared.selectedTab = tab }
         ensureWindow()
         guard let window else { return }
 

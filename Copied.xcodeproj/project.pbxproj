@@ -36,15 +36,18 @@
 		5B6FFBCAACE8C2FCBB010D06 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 83A903B7F63DBF1CD891CB44 /* PrivacyInfo.xcprivacy */; };
 		5DBFB8C5F2872EE231E65C14 /* SharedClippingCloudUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */; };
 		5F19A2CD72C3F6507AFF2857 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0DC10E8877F0AF5A1FEB431F /* Info.plist */; };
+		625D43CFC4333954E69C9D9D /* MacUpdatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE2C31E46013AE0D52144D0 /* MacUpdatesView.swift */; };
 		633B1A5F62F48594C2B847FE /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDDBADE4DEB99E3FDF3FA8E1 /* CloudKit.framework */; };
 		6A0129B57D1D871B1AA5089C /* SyncScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DBD092BADC5A5DB49DD558 /* SyncScreen.swift */; };
 		6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B039D4406990AB5444E169A /* PopoverClippingCard.swift */; };
 		6DFA02AFA66459F1B8430C68 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F5B9606604EF52355AC247 /* SettingsWindowController.swift */; };
 		6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */; };
 		724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68365944B55FF8FB14382D5 /* PermissionManager.swift */; };
+		728664C94EE74FB9CA6EB2D8 /* HomebrewUpdateServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DA49E5DBC9725DEEE9625C /* HomebrewUpdateServiceTests.swift */; };
 		740AB8B78191B8B32243712F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 96D9EDE8FE373D1DC85D70A2 /* Sparkle */; };
 		7694BB192C9FEA973603ED22 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */; };
 		7736F7876559BB4CFD34ED3B /* ClippingActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F155ABC08FE1F7ED24D6588 /* ClippingActionSheet.swift */; };
+		78EBCA08CE56DC3ED9C8E930 /* MacUpdatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE2C31E46013AE0D52144D0 /* MacUpdatesView.swift */; };
 		7E42D6444766F93DCB289829 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = ACD2861424F723D5D609AB4D /* CopiedKit */; };
 		857BDE3BFEB7E9C775E6B9A2 /* AppRestarter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F49BBDF97F56680FA79F5B /* AppRestarter.swift */; };
 		8A19023873943BB97C5EAC15 /* ClipListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D511C12F7A91C1F037BE1262 /* ClipListTests.swift */; };
@@ -61,6 +64,7 @@
 		9A480A83DA21D9DE69F277D5 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = C8685AAFE499AE75FFFF857C /* CopiedKit */; };
 		9ECA08EDDEB19AA56187D51C /* SiriShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CFDBF3C81AD319943D40A66 /* SiriShortcutsSettingsView.swift */; };
 		9F0237E941A9D8C9E0837B71 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 177577A5DA3E115A8224EF87 /* DesignTokens.swift */; };
+		A2FCBE6B24D25A0ED5EF8FA2 /* UpdateInterfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDD143C3C26F9B6042E782F /* UpdateInterfaceTests.swift */; };
 		A7251E200F17B40E044FB2B0 /* ClippingSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19AD031F35C5A7AA963F23D5 /* ClippingSortOrder.swift */; };
 		A967037E4A6A0F2FF261E04E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2977CA0AC8339871C8329B52 /* Assets.xcassets */; };
 		AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */; };
@@ -68,6 +72,7 @@
 		BAB1D9AC6E706CCCB9DD3456 /* ClippingsListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2FAEBD6420F33C29FEF639 /* ClippingsListScreen.swift */; };
 		BBA352556BE9A969BD1DFF6D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BDCB5C4650FAAE414B4E2D3F /* Assets.xcassets */; };
 		BBACAFF88EF2EF058D96CBF7 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A621629EB1423A7F5305E1 /* PopoverView.swift */; };
+		BD0292C7C9FF8835623A601C /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 220E9B2F914E12C5C4F23835 /* Sparkle */; };
 		C1663A6BAB3278B0242F7005 /* CopiedKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB8A00D4882BAB13C68B0A2 /* CopiedKit */; };
 		C17EA098895F9894B07B80A7 /* InterfaceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A4114F0D078DA4FF7B6D6E /* InterfaceSettingsView.swift */; };
 		C28D31C08B3BFDBD26E59062 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 2FBDD82222D737FEE0F7BF19 /* PrivacyInfo.xcprivacy */; };
@@ -101,6 +106,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 520AD34CEF71A26CAEC95AC1;
 			remoteInfo = CopiedShareExtension;
+		};
+		0C86E17FA32EC2205775186B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C10DC7FAC57C33860C4B846 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3FFB9F80290BB5097583D0C3;
+			remoteInfo = CopiedMacDirect;
 		};
 		C4E497F69AE4023F61CC079B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -137,10 +149,12 @@
 		000F74DFFD806DA96C1C47B7 /* CopiedAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedAppShortcuts.swift; sourceTree = "<group>"; };
 		04B7B5A54294A32350765CDE /* CopiedIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CopiedIOS.entitlements; sourceTree = "<group>"; };
 		07578CEAA4D43E1F8EF0FEB1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		08DA49E5DBC9725DEEE9625C /* HomebrewUpdateServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomebrewUpdateServiceTests.swift; sourceTree = "<group>"; };
 		08F49BBDF97F56680FA79F5B /* AppRestarter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRestarter.swift; sourceTree = "<group>"; };
 		0DC10E8877F0AF5A1FEB431F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0E6F34BD526DA88B2B1DC503 /* RulesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesSettingsView.swift; sourceTree = "<group>"; };
 		0F16D2F561BC01AE2ED9E5CB /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		0FE2C31E46013AE0D52144D0 /* MacUpdatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdatesView.swift; sourceTree = "<group>"; };
 		177577A5DA3E115A8224EF87 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		19AD031F35C5A7AA963F23D5 /* ClippingSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClippingSortOrder.swift; sourceTree = "<group>"; };
 		2331015E7CB0A89E2EA77BEB /* SharedClippingCloudUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedClippingCloudUploaderTests.swift; sourceTree = "<group>"; };
@@ -156,6 +170,7 @@
 		3EF43CB043C2D52CBB11AEC0 /* CopiedMac-MAS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CopiedMac-MAS.entitlements"; sourceTree = "<group>"; };
 		4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		46990B73B52D3A00274D3770 /* CopiedIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopiedIOSApp.swift; sourceTree = "<group>"; };
+		4BDD143C3C26F9B6042E782F /* UpdateInterfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateInterfaceTests.swift; sourceTree = "<group>"; };
 		4C82B87E345A71BD1EA9B12E /* Info-Direct.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-Direct.plist"; sourceTree = "<group>"; };
 		52AB50F7343FD5C56B2E5173 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = CopiedShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -167,6 +182,7 @@
 		64F5B9606604EF52355AC247 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		6B039D4406990AB5444E169A /* PopoverClippingCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverClippingCard.swift; sourceTree = "<group>"; };
 		6CFDBF3C81AD319943D40A66 /* SiriShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriShortcutsSettingsView.swift; sourceTree = "<group>"; };
+		712D0D89C346B68146768151 /* CopiedMacDirectTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CopiedMacDirectTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7796C21EDD68C0ED1820B803 /* CopiedMacDirect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CopiedMacDirect.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83A903B7F63DBF1CD891CB44 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8D957E3D5D9C555F80DF2243 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -210,6 +226,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		152C23AFDC53732781DF77C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BD0292C7C9FF8835623A601C /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1EB95514C3F5DDC70B66B35E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -286,6 +310,7 @@
 			isa = PBXGroup;
 			children = (
 				8EBD72DBC570F086DD209130 /* ClippingEditSheet.swift */,
+				0FE2C31E46013AE0D52144D0 /* MacUpdatesView.swift */,
 				4305BE3E48CCEE9D099C9D1C /* SettingsView.swift */,
 			);
 			path = Views;
@@ -318,6 +343,15 @@
 				C446B8F58834A31AD60297C5 /* MainWindowView.swift */,
 			);
 			path = Windows;
+			sourceTree = "<group>";
+		};
+		7BE875E5D962EF6B45F4A613 /* CopiedMacDirectTests */ = {
+			isa = PBXGroup;
+			children = (
+				4BDD143C3C26F9B6042E782F /* UpdateInterfaceTests.swift */,
+			);
+			name = CopiedMacDirectTests;
+			path = Tests/CopiedMacDirectTests;
 			sourceTree = "<group>";
 		};
 		9E4104E390A34F56C3486F2D /* CopiedIOS */ = {
@@ -415,6 +449,7 @@
 				BF5FBEDA4C0FE0BF0E077A0E /* CopiedKitTests.xctest */,
 				FCA7831A76D46DF3744FCD06 /* CopiedMac.app */,
 				7796C21EDD68C0ED1820B803 /* CopiedMacDirect.app */,
+				712D0D89C346B68146768151 /* CopiedMacDirectTests.xctest */,
 				54AADEB8CAEF40571BADD6EB /* CopiedShareExtension.appex */,
 			);
 			name = Products;
@@ -426,6 +461,7 @@
 				29FB00701E2C6E430ACC0939 /* ClipboardServiceTests.swift */,
 				D511C12F7A91C1F037BE1262 /* ClipListTests.swift */,
 				DDEA753EEB49E5A6CFD722D9 /* ClippingModelTests.swift */,
+				08DA49E5DBC9725DEEE9625C /* HomebrewUpdateServiceTests.swift */,
 				B7FFED57AEA80DDA209FAA1D /* LicenseValidatorTests.swift */,
 				A2404B965DCA2AB51E9FFE3B /* MacUpdateChannelTests.swift */,
 				3505905E6EACBB9EB7A830BF /* MainWindowCopyCommandTests.swift */,
@@ -462,6 +498,7 @@
 				9E4104E390A34F56C3486F2D /* CopiedIOS */,
 				EC0950510151B6A62A563483 /* CopiedKitTests */,
 				ED2FF8F0E59F077212128CFB /* CopiedMac */,
+				7BE875E5D962EF6B45F4A613 /* CopiedMacDirectTests */,
 				5FB9655280081611B28A10F0 /* CopiedShareExtension */,
 				BFF98950BC6C0B867EA5B35E /* Packages */,
 				DFA70476A5CAC527F1F7F985 /* Frameworks */,
@@ -499,6 +536,26 @@
 			productName = CopiedClipperExtension;
 			productReference = 61A09094992D1755F0A87E23 /* CopiedClipperExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		35DF0CA3B121DC4C9BDE3B1B /* CopiedMacDirectTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B83E6ACCFCD19AE3058D2C89 /* Build configuration list for PBXNativeTarget "CopiedMacDirectTests" */;
+			buildPhases = (
+				459D139443273737BB28ECB4 /* Sources */,
+				152C23AFDC53732781DF77C6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				79D503A2560525848EA4DD45 /* PBXTargetDependency */,
+			);
+			name = CopiedMacDirectTests;
+			packageProductDependencies = (
+				220E9B2F914E12C5C4F23835 /* Sparkle */,
+			);
+			productName = CopiedMacDirectTests;
+			productReference = 712D0D89C346B68146768151 /* CopiedMacDirectTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		3FFB9F80290BB5097583D0C3 /* CopiedMacDirect */ = {
 			isa = PBXNativeTarget;
@@ -618,10 +675,14 @@
 						ProvisioningStyle = Automatic;
 						SystemCapabilities = "[\"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
+					35DF0CA3B121DC4C9BDE3B1B = {
+						DevelopmentTeam = 7727LYTG96;
+						ProvisioningStyle = Automatic;
+					};
 					3FFB9F80290BB5097583D0C3 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 					520AD34CEF71A26CAEC95AC1 = {
 						DevelopmentTeam = 7727LYTG96;
@@ -631,7 +692,7 @@
 					67CF2DC485C5993966B494D7 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 					BCFE06295783F2744BA56339 = {
 						DevelopmentTeam = 7727LYTG96;
@@ -640,7 +701,7 @@
 					F47662F6E87A5A3AD6388873 = {
 						DevelopmentTeam = 7727LYTG96;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ApplicationGroups.iOS\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -668,6 +729,7 @@
 				520AD34CEF71A26CAEC95AC1 /* CopiedShareExtension */,
 				246B4BCC68C76E0FB02B4FCC /* CopiedClipperExtension */,
 				BCFE06295783F2744BA56339 /* CopiedKitTests */,
+				35DF0CA3B121DC4C9BDE3B1B /* CopiedMacDirectTests */,
 			);
 		};
 /* End PBXProject section */
@@ -732,6 +794,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		459D139443273737BB28ECB4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A2FCBE6B24D25A0ED5EF8FA2 /* UpdateInterfaceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		5272A9CC98B8B1CA195A0DA2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -740,6 +810,7 @@
 				8E571072F83C8735F75B5479 /* ClippingEditSheet.swift in Sources */,
 				8A8AC5000C43193E11BE3585 /* CopiedMacApp.swift in Sources */,
 				8D03DD120B7D7E5D83463DD3 /* GlobalHotkeyManager.swift in Sources */,
+				625D43CFC4333954E69C9D9D /* MacUpdatesView.swift in Sources */,
 				979E1F22BA6D8BF0A429A471 /* MainWindowView.swift in Sources */,
 				724F5BAC96D1EE37B5585B5E /* PermissionManager.swift in Sources */,
 				6D0CE241A0BD4D6130F207B9 /* PopoverClippingCard.swift in Sources */,
@@ -758,6 +829,7 @@
 				FC58618EE11F7C63121FBBE6 /* ClippingEditSheet.swift in Sources */,
 				2207A608128EEC103F03E0A9 /* CopiedMacApp.swift in Sources */,
 				52D4CDDFBCB30D7394C2D8DB /* GlobalHotkeyManager.swift in Sources */,
+				78EBCA08CE56DC3ED9C8E930 /* MacUpdatesView.swift in Sources */,
 				C669C712355C08854A820C96 /* MainWindowView.swift in Sources */,
 				D57CAC66A8BD5D53C055AECE /* PermissionManager.swift in Sources */,
 				0E50B78E1399A0B08FE6CF62 /* PopoverClippingCard.swift in Sources */,
@@ -775,6 +847,7 @@
 				8A19023873943BB97C5EAC15 /* ClipListTests.swift in Sources */,
 				6F5FBDADECD0B882EBB0DB43 /* ClipboardServiceTests.swift in Sources */,
 				046575326421682114D85DCB /* ClippingModelTests.swift in Sources */,
+				728664C94EE74FB9CA6EB2D8 /* HomebrewUpdateServiceTests.swift in Sources */,
 				AAE94B36565F6D7596231180 /* LicenseValidatorTests.swift in Sources */,
 				919BCB508DB07CA0090F74F3 /* MacUpdateChannelTests.swift in Sources */,
 				311855EEF0BB365928B4BBCA /* MainWindowCopyCommandTests.swift in Sources */,
@@ -830,6 +903,11 @@
 			target = 520AD34CEF71A26CAEC95AC1 /* CopiedShareExtension */;
 			targetProxy = 09B8D19F5890433ABC6F106D /* PBXContainerItemProxy */;
 		};
+		79D503A2560525848EA4DD45 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3FFB9F80290BB5097583D0C3 /* CopiedMacDirect */;
+			targetProxy = 0C86E17FA32EC2205775186B /* PBXContainerItemProxy */;
+		};
 		B0735B6A8695FB83B8ECC685 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 67CF2DC485C5993966B494D7 /* CopiedMac */;
@@ -848,7 +926,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -873,7 +951,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -890,12 +968,30 @@
 			};
 			name = Release;
 		};
+		2EDAD5CF9E1CA38B5BF58B58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.magneton.copied.direct.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Copied.app/Contents/MacOS/Copied";
+			};
+			name = Release;
+		};
 		2FF5B4788EE79822D2656DF8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1023,7 +1119,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedIOS/CopiedIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedIOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1040,6 +1136,24 @@
 			};
 			name = Debug;
 		};
+		99AB872FF7AB10706F83CEBF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.magneton.copied.direct.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CopiedDirect.app/Contents/MacOS/CopiedDirect";
+			};
+			name = Debug;
+		};
 		A18DC95DE1912649474327DC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1047,7 +1161,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = "CopiedMac/Info-Direct.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1129,7 +1243,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedShareExtension/CopiedShareExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedShareExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1154,7 +1268,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1177,7 +1291,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = "CopiedMac/Info-Direct.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1201,7 +1315,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedMac/CopiedMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1222,7 +1336,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = CopiedClipperExtension/CopiedClipperExtension.entitlements;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				INFOPLIST_FILE = CopiedClipperExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1297,6 +1411,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		B83E6ACCFCD19AE3058D2C89 /* Build configuration list for PBXNativeTarget "CopiedMacDirectTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				99AB872FF7AB10706F83CEBF /* Debug */,
+				2EDAD5CF9E1CA38B5BF58B58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		F9761600A420526D57D095F1 /* Build configuration list for PBXProject "Copied" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1330,6 +1453,11 @@
 		12BA8D72684F91B1163A3BF6 /* CopiedKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CopiedKit;
+		};
+		220E9B2F914E12C5C4F23835 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 98EFE3FF8E89B663A3A09C2E /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 		5EB8A00D4882BAB13C68B0A2 /* CopiedKit */ = {
 			isa = XCSwiftPackageProductDependency;

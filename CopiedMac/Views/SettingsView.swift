@@ -27,7 +27,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = false
     @State private var loginItemError: String?
 
-    @State private var selectedTab = 0
+    @State private var navigation = SettingsNavigation.shared
 
     /// One-shot: if set, the Settings window opens to this tag on next appear.
     /// `AppRestarter.restartAfterPurchase()` writes this before relaunching so the
@@ -80,7 +80,7 @@ struct SettingsView: View {
             // Swap the tab content based on selection. Using a switch keeps only
             // one tab's views in memory at a time (matches prior TabView behavior).
             Group {
-                switch selectedTab {
+                switch navigation.selectedTab {
                 case 0: generalTab
                 case 1: clipboardTab
                 case 2: appearanceTab
@@ -96,7 +96,7 @@ struct SettingsView: View {
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             if pendingTab >= 0 {
-                selectedTab = pendingTab
+                navigation.selectedTab = pendingTab
                 pendingTab = -1
             }
         }
@@ -115,9 +115,9 @@ struct SettingsView: View {
     }
 
     private func settingsTabButton(tag: Int, label: String, icon: String) -> some View {
-        let isSelected = selectedTab == tag
+        let isSelected = navigation.selectedTab == tag
         return Button {
-            selectedTab = tag
+            navigation.selectedTab = tag
         } label: {
             VStack(spacing: 2) {
                 Image(systemName: icon)
@@ -658,6 +658,17 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
 
+            Section("Updates") {
+                #if MAS_STOREFRONT
+                LabeledContent("Managed by") {
+                    Text("Mac App Store / TestFlight")
+                        .foregroundStyle(.secondary)
+                }
+                #elseif DIRECT_DOWNLOAD
+                MacUpdatesView()
+                #endif
+            }
+
             Section("Support") {
                 Button { openSupportEmail() } label: {
                     LabeledContent("Email") {
@@ -679,64 +690,6 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
-            }
-
-            Section("Updates") {
-                #if MAS_STOREFRONT
-                LabeledContent("Managed by") {
-                    Text("Mac App Store")
-                        .foregroundStyle(.secondary)
-                }
-                #elseif DIRECT_DOWNLOAD
-                switch UpdateManager.shared.channel {
-                case .directDownload:
-                    LabeledContent("Managed by") {
-                        Text("Copied")
-                            .foregroundStyle(.secondary)
-                    }
-                    Toggle(
-                        "Automatically check for updates",
-                        isOn: Binding(
-                            get: { UpdateManager.shared.automaticallyChecksForUpdates },
-                            set: { UpdateManager.shared.automaticallyChecksForUpdates = $0 }
-                        )
-                    )
-                    Toggle(
-                        "Download and install updates automatically",
-                        isOn: Binding(
-                            get: { UpdateManager.shared.automaticallyDownloadsUpdates },
-                            set: { UpdateManager.shared.automaticallyDownloadsUpdates = $0 }
-                        )
-                    )
-                    Button {
-                        UpdateManager.shared.checkForUpdates()
-                    } label: {
-                        Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .disabled(!UpdateManager.shared.canCheckForUpdates)
-
-                case .homebrew:
-                    LabeledContent("Managed by") {
-                        Text("Homebrew")
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 10) {
-                        Text(UpdateManager.homebrewUpgradeCommand)
-                            .font(.system(.callout, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Spacer(minLength: 8)
-                        Button {
-                            UpdateManager.shared.copyHomebrewUpgradeCommand()
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Copy upgrade command")
-                    }
-                }
-                #endif
             }
 
             Section("Legal") {

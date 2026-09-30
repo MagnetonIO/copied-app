@@ -68,6 +68,13 @@ struct CopiedMacApp: App {
         .defaultSize(width: 900, height: 600)
         .defaultPosition(.center)
         .handlesExternalEvents(matching: ["copied"])
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Copied…") {
+                    SettingsWindowController.shared.show(tab: 4)
+                }
+            }
+        }
 
         // MenuBarExtra hosts the popover as a full SwiftUI Scene. The
         // scene body (including every `@Query` inside `PopoverView`) is
@@ -611,8 +618,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.target = self
         menu.addItem(settings)
 
+        let about = NSMenuItem(
+            title: "About Copied…",
+            action: #selector(rightClickMenuOpenAbout),
+            keyEquivalent: ""
+        )
+        about.target = self
+        menu.addItem(about)
+
         #if DIRECT_DOWNLOAD
-        if UpdateManager.shared.channel == .directDownload {
+        if UpdateManager.shared.canCheckForUpdates {
             let checkForUpdates = NSMenuItem(
                 title: "Check for Updates…",
                 action: #selector(rightClickMenuCheckForUpdates),
@@ -655,6 +670,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func rightClickMenuOpenSettings() {
         SettingsWindowController.shared.show()
+    }
+
+    @objc private func rightClickMenuOpenAbout() {
+        SettingsWindowController.shared.show(tab: 4)
     }
 
     #if DIRECT_DOWNLOAD
