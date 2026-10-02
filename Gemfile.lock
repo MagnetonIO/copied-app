@@ -1,7 +1,7 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    CFPropertyList (3.0.9)
+    CFPropertyList (3.0.8)
     abbrev (0.1.2)
     addressable (2.9.0)
       public_suffix (>= 2.0.2, < 8.0)
@@ -232,5 +232,8 @@ DEPENDENCIES
   dotenv
   fastlane
 
+RUBY VERSION
+   ruby 3.4.10p104
+
 BUNDLED WITH
-   1.17.3
+   2.6.9

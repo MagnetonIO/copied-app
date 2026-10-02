@@ -686,7 +686,7 @@ platform :mac do
   end
 
   desc "Upload screenshots only"
-  lane :upload_screenshots do
+  lane :upload_screenshots do |options|
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key (fastlane/api_key.json)") unless key
 
@@ -697,6 +697,7 @@ platform :mac do
         skip_binary_upload: true,
         skip_screenshots: false,
         skip_metadata: true,
+        overwrite_screenshots: options[:replace].to_s == "true",
         force: true,
         run_precheck_before_submit: false,
         submit_for_review: false
@@ -936,6 +937,7 @@ platform :ios do
       <plist version="1.0">
       <dict>
           <key>method</key><string>app-store-connect</string>
+          <key>manageAppVersionAndBuildNumber</key><false/>
           <key>signingStyle</key><string>automatic</string>
           <key>teamID</key><string>7727LYTG96</string>
       </dict>
@@ -1027,7 +1029,7 @@ platform :ios do
   end
 
   desc "Upload iOS App Store screenshots only (no build, no metadata, no submit). Reads fastlane/screenshots-ios/<locale>/*.png."
-  lane :upload_screenshots do
+  lane :upload_screenshots do |options|
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key — set APP_STORE_CONNECT_API_KEY_ID/_ISSUER_ID/_PATH in .env") unless key
 
@@ -1042,7 +1044,7 @@ platform :ios do
         skip_screenshots: false,
         skip_metadata: true,
         force: true,
-        overwrite_screenshots: false,
+        overwrite_screenshots: options[:replace].to_s == "true",
         run_precheck_before_submit: false,
         submit_for_review: false
       )

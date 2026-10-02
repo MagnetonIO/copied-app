@@ -17,11 +17,13 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app
 
-      - name: Install fastlane
-        run: brew install fastlane
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
 
       - name: Build (unsigned)
-        run: fastlane ci_build
+        run: bundle exec fastlane ci_build
 
   # ── Signed Release (on version tags) ──────────────
   release:
@@ -38,8 +40,10 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.app
 
-      - name: Install fastlane
-        run: brew install fastlane
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
 
       - name: Install signing certificate
         env:

@@ -145,6 +145,35 @@ builds remain store-managed. Verify updater UI and delegate behavior with
 
 ## TestFlight Builds
 
+Release tooling uses the repo's `.ruby-version` (Ruby 3.4.10), not Apple's
+deprecated Ruby 2.6 or the shell's Homebrew Ruby. Install and use it with rbenv:
+
+```sh
+rbenv install -s "$(cat .ruby-version)"
+rbenv exec gem install bundler -v 2.6.9 --no-document
+rbenv exec bundle install
+rbenv exec bundle exec fastlane ios archive
+rbenv exec bundle exec fastlane ios testflight
+```
+
+The build and TestFlight driver scripts prepend rbenv shims when available.
+For direct `bundle exec` commands, first initialize rbenv in your shell or use
+`rbenv exec` as above. Ruby gems are runtime-specific; a bundle installed under
+`vendor/bundle/ruby/2.6.0` cannot be reused by Ruby 3.4. Keep the old bundle
+available during migration, but do not use it for new releases.
+Bundler is locked to 2.6.9. The compatible lockfile uses CFPropertyList 3.0.8:
+3.0.9 declares Ruby `< 3.2`, while the current Fastlane/xcodeproj constraints
+exclude CFPropertyList 4.0. Keep Fastlane itself locked unless an upgrade is
+explicitly needed. A signed iOS archive/export and read-only App Store Connect
+query both passed with Ruby 3.4.10 on 2026-10-01.
+Preserve old archive/IPA artifacts
+outside the active output paths before rebuilding, then verify the exported IPA
+and both extensions have the intended build number before uploading. Uploading
+to TestFlight does not select the new build for a production version or resubmit
+a withdrawn version for App Review.
+The iOS export options set `manageAppVersionAndBuildNumber` to false so Xcode
+cannot silently increment the exported IPA's build after an earlier upload.
+
 To release both macOS and iOS TestFlight builds with one shared new build
 number:
 
@@ -196,6 +225,29 @@ ls -lh build/mas/Copied.pkg build/ios/Copied.ipa
 ```
 
 ## App Store Production Staging
+
+Mac screenshot layout sources and status are documented in
+`design/app-store/mac/README.md`. Preserve the real UI; do not upload the
+AI-edited files under `previews/`. Render the local, gitignored originals with
+`swift scripts/render-mac-store-screenshots.swift` to refresh Fastlane's four
+2880 x 1800 PNGs. To replace an existing remote Mac screenshot set, use
+`bundle exec fastlane mac upload_screenshots replace:true`; it uploads only
+screenshots and does not submit for review. Review image content before upload.
+
+The iPhone set uses the same layout conventions. Originals are kept outside
+the upload tree in `design/app-store/ios/_original/`; details and review assets
+are in `design/app-store/ios/README.md`. Run
+`swift scripts/render-ios-store-screenshots.swift` to regenerate four opaque
+1320 x 2868 PNGs in `fastlane/screenshots-ios/en-US/`. Use
+`bundle exec fastlane ios upload_screenshots replace:true` only after reviewing
+the images and preserving any remote-only screenshots that must remain. These
+iPhone assets do not replace required iPad captures. The companion iPad set in
+`design/app-store/ipad/` uses real 13-inch tablet simulator captures; see its
+`README.md` for isolated sample-data setup and capture steps. Run
+`swift scripts/render-ipad-store-screenshots.swift` to regenerate four opaque
+2752 x 2064 landscape PNGs in the same Fastlane directory. Both renderers are
+needed to refresh the full iOS screenshot set. Never stretch iPhone UI into iPad
+assets. Ship the iPad sidebar selection fix in a new build before submission.
 
 TestFlight upload does not stage the production listings. After both builds are
 `VALID`, upload the checked-in metadata and screenshots without submitting:

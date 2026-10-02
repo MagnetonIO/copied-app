@@ -34,6 +34,7 @@ struct RootNavigator: View {
                     NavigationStack {
                         ListsScreen.destination(for: selectedList, presentsSettings: $presentsSettings)
                     }
+                    .id(selectedList)
                 }
             } else {
                 NavigationStack(path: $path) {

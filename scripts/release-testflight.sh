@@ -16,6 +16,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if command -v rbenv >/dev/null 2>&1; then
+  export PATH="$(rbenv root)/shims:$PATH"
+fi
+
 target="${1:-both}"
 
 case "$target" in

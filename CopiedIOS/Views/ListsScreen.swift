@@ -53,8 +53,16 @@ struct ListsScreen: View {
     /// When at or over this limit, the count turns red — matches the screenshot.
     private var isOverLimit: Bool { totalCount >= 500 }
 
+    private var sidebarSelection: Binding<Selection?>? {
+        guard !registersDestination else { return nil }
+        return Binding(
+            get: { selection },
+            set: { if let newSelection = $0 { selection = newSelection } }
+        )
+    }
+
     var body: some View {
-        List {
+        List(selection: sidebarSelection) {
             Section {
                 NavigationLink(value: Selection.copied) {
                     RowLabel(

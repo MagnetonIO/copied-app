@@ -1,0 +1,66 @@
+name: CopiedIAPCapture
+options:
+  bundleIdPrefix: com.magneton.copied.iapreview
+packages:
+  CopiedKit:
+    path: ../../../CopiedKit
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MAS_BUILD MAS_STOREFRONT
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "1.3.3"
+    CURRENT_PROJECT_VERSION: "16"
+targets:
+  MacIAPCapture:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - capture/MacCaptureApp.swift
+      - ../../../CopiedMac/Views/SettingsView.swift
+      - ../../../CopiedMac/App/SettingsWindowController.swift
+      - ../../../CopiedMac/App/AppRestarter.swift
+      - path: ../../../Copied.storekit
+        buildPhase: resources
+    dependencies:
+      - package: CopiedKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.iapreview.mac
+        INFOPLIST_KEY_CFBundleDisplayName: Copied IAP Capture
+  IOSIAPCapture:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - capture/IOSCaptureApp.swift
+      - ../../../CopiedIOS/Views/SyncScreen.swift
+      - ../../../CopiedIOS/Views/DesignTokens.swift
+      - path: ../../../Copied.storekit
+        buildPhase: resources
+    dependencies:
+      - package: CopiedKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.iapreview.ios
+        INFOPLIST_KEY_CFBundleDisplayName: Copied
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+schemes:
+  MacIAPCapture:
+    build:
+      targets:
+        MacIAPCapture: all
+    run:
+      storeKitConfiguration: ../../Copied.storekit
+  IOSIAPCapture:
+    build:
+      targets:
+        IOSIAPCapture: all
+    run:
+      storeKitConfiguration: ../../Copied.storekit

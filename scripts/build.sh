@@ -23,6 +23,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if command -v rbenv >/dev/null 2>&1; then
+  export PATH="$(rbenv root)/shims:$PATH"
+fi
+
 target="${1:-}"
 # Optional --open / -o flag routes through to fastlane so Installer opens
 # after build. OSS always auto-opens (it's specifically for local install).
