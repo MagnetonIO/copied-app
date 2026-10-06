@@ -1,6 +1,9 @@
 import Testing
 import SwiftData
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 @testable import CopiedKit
 
 @Suite("PasteQueueService")
@@ -46,5 +49,27 @@ struct PasteQueueTests {
         let service = PasteQueueService()
         #expect(!service.isActive)
         #expect(service.currentClipping == nil)
+    }
+
+    @Test("Advance copies each item and wraps without injecting a paste")
+    func advanceCopiesAndWraps() {
+        let service = PasteQueueService()
+        service.load([Clipping(text: "first"), Clipping(text: "second")])
+
+        service.pasteAndAdvance()
+        #expect(service.currentIndex == 1)
+        #if canImport(AppKit)
+        #expect(NSPasteboard.general.string(forType: .string) == "first")
+        #endif
+
+        service.pasteAndAdvance()
+        #expect(service.currentIndex == 0)
+        #if canImport(AppKit)
+        #expect(NSPasteboard.general.string(forType: .string) == "second")
+        #endif
+
+        service.clear()
+        service.pasteAndAdvance()
+        #expect(service.currentIndex == 0)
     }
 }

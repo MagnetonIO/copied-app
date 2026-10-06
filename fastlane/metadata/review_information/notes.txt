@@ -12,6 +12,6 @@ iCloud Sync is a $4.99 non-consumable in-app purchase (product ID: com.magneton.
 "Restore Purchases" is available in the same Sync tab.
 
 Permissions:
-The app requests macOS Accessibility permission on first launch so the global hotkey (⌃⇧C) can be triggered from any app. This is optional; without it, the user opens the popover by clicking the menu bar icon.
+The Mac App Store build does not request or use macOS Accessibility access. The global shortcut (⌃⇧C) uses Carbon RegisterEventHotKey, without a keyboard event tap. Selecting a clipping copies it to the clipboard; the user pastes with ⌘V in the destination app. No synthetic keyboard events are sent.
 
 Support: support@getcopied.app

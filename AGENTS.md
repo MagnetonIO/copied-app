@@ -278,6 +278,51 @@ unless the user explicitly asks for submission. Apple now uses the two-step
 `Add for Review` then `Submit for Review` flow; verify the draft contents in the
 web UI before the final action.
 
+### Mac Review Rejection Follow-up (2026-10-06)
+
+Mac 1.3.3 build 15 was rejected under 2.4.5 (Accessibility access for a global
+shortcut) and 2.1(b) (iCloud Sync IAP not submitted). All Mac variants now
+use Carbon `RegisterEventHotKey` only: no Accessibility prompt, keyboard event
+tap, or synthetic paste. Website builds keep Sparkle and paid-license support.
+The shared paste queue only writes clipboard data and advances its index.
+
+The replacement Mac App Store binary is 1.3.3 build 17. The website patch is
+1.3.3 build 18, published as `Copied-v1.3.3-build18.pkg` plus the legacy download
+alias. Its appcast and Homebrew version (`1.3.3,18`) reference the immutable PKG.
+These channel builds are separate; publishing the website does not change the
+App Store build selected for review. The shared Carbon shortcut regression also
+runs in `CopiedMacDirectTests` alongside `UpdateInterfaceTests`.
+
+After every Mac App Store archive, run:
+
+```sh
+zsh scripts/verify-mas-build.sh
+```
+
+This validates signature, sandbox, Carbon registration imports, absence of
+privileged keyboard/Accessibility imports, and absence of Sparkle. Test the
+shortcut and native copy behavior with `GlobalHotkeyTests`,
+`MainWindowCopyCommandTests`, and `PasteQueueTests` in the `CopiedMac` scheme.
+
+The existing IAP `6764169200` / `com.magneton.copied.icloud_sync` already has a
+completed review screenshot. `READY_TO_SUBMIT` is not submitted. Include the
+IAP and the replacement Mac app version in the **same** review submission;
+an IAP-only iOS draft does not satisfy Mac review. Inspect the actual draft
+items and confirm both are present before final Submit for Review. Do not
+cancel or replace the pending iOS app review just to repair the Mac submission.
+
+When a replacement app version is stuck in an old `UNRESOLVED_ISSUES`
+submission, it cannot also be added to a separate IAP draft. Remove the app
+item from the old submission using the documented review-item `removed:true`
+update, wait for that submission to become `COMPLETE`, then add the version
+to the new Mac draft. Removal can temporarily reset the app version to
+`DEVELOPER_REJECTED`; adding it to the new draft restores `READY_FOR_REVIEW`.
+The public API now supports `inAppPurchaseVersion` on review submission items;
+retrieve its ID from `/v2/inAppPurchases/6764169200/versions`, not the product ID.
+Verify both `appStoreVersion` and `inAppPurchaseVersion` relationships. On
+2026-10-06, draft `0de8b82a-a8b3-461e-a321-92e00d95eafc` was prepared with
+both items, without submitting it. Recheck live state before further actions.
+
 ## Combined Release Lanes
 
 For a new version that should publish GitHub and upload both TestFlight builds:

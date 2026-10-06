@@ -457,11 +457,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        // Prompt for accessibility
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            PermissionManager.ensureAccessibility()
-        }
-
         // Close main window unless configured to show
         let showOnLaunch = UserDefaults.standard.bool(forKey: "showWindowOnLaunch")
         if !showOnLaunch {

@@ -34,16 +34,13 @@ public final class PasteQueueService {
         return queue[currentIndex]
     }
 
-    /// Paste the current item and advance the index.
-    /// iOS note: iOS sandboxing blocks cross-app paste, so this writes to
-    /// `UIPasteboard.general` and advances — the user completes the paste
-    /// manually in the destination app.
+    /// Copy the current item and advance. The user pastes in the destination
+    /// app; this shared service never injects keyboard events into other apps.
     public func pasteAndAdvance() {
         guard let clipping = currentClipping else { return }
 
         #if canImport(AppKit)
         writeToPasteboard(clipping)
-        simulatePaste()
         #elseif canImport(UIKit)
         writeToPasteboard(clipping)
         #endif
@@ -95,15 +92,4 @@ public final class PasteQueueService {
         #endif
     }
 
-    #if canImport(AppKit)
-    private func simulatePaste() {
-        let src = CGEventSource(stateID: .hidSystemState)
-        let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 0x09, keyDown: true) // V key
-        let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 0x09, keyDown: false)
-        keyDown?.flags = .maskCommand
-        keyUp?.flags = .maskCommand
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
-    }
-    #endif
 }
