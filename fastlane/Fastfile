@@ -960,17 +960,20 @@ platform :ios do
 
     ipa_path = "build/ios/Copied.ipa"
     UI.user_error!("iOS archive failed — no .ipa at #{ipa_path}") unless File.exist?("#{repo}/#{ipa_path}")
+    sh("zsh '#{repo}/scripts/verify-ios-build.sh' '#{repo}/#{ipa_path}'")
     UI.success("iOS archive: #{ipa_path}")
   end
 
   desc "Upload existing build/ios/Copied.ipa to TestFlight (no auto-submit)"
-  lane :testflight do
+  lane :testflight do |options|
     # Does not re-archive: the caller (scripts/build.sh ios-testflight) is
     # responsible for running `bump-build.sh` then `archive` so the IPA here
     # always reflects the current build number. Caching the archive and
     # silently uploading stale bits is the wrong default.
-    ipa = "build/ios/Copied.ipa"
-    UI.user_error!("No IPA at #{ipa} — run `fastlane ios archive` (or `./scripts/build.sh ios-testflight`) first") unless File.exist?("../#{ipa}")
+    repo = File.expand_path("..", __dir__)
+    ipa = File.expand_path(options[:ipa] || "build/ios/Copied.ipa", repo)
+    UI.user_error!("No IPA at #{ipa} — run `fastlane ios archive` (or `./scripts/build.sh ios-testflight`) first") unless File.file?(ipa)
+    sh("zsh '#{repo}/scripts/verify-ios-build.sh' '#{ipa}'")
 
     key = asc_api_key
     UI.user_error!("Missing App Store Connect API key — set APP_STORE_CONNECT_API_KEY_ID/_ISSUER_ID/_PATH in .env") unless key

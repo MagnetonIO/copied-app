@@ -149,7 +149,7 @@ public enum SharedStore {
 
     /// App Group-scoped UserDefaults. Extensions cannot read `UserDefaults.standard`
     /// of the host; anything the extension needs to observe (e.g. the host's
-    /// `iCloudSyncPurchased` flag) must live here.
+    /// StoreKit purchase cache) must live here.
     ///
     /// `nonisolated(unsafe)` because `UserDefaults` isn't `Sendable` but is
     /// documented thread-safe for the read/write calls we use (set/get of
@@ -158,7 +158,13 @@ public enum SharedStore {
         UserDefaults(suiteName: appGroupIdentifier) ?? .standard
     }()
 
+    #if os(iOS)
+    // Extensions may run before the updated host app. Ignore the old shared
+    // flag too, since build 16 could set it after accepting an external key.
+    private static let cloudSyncPurchasedKey = "extensionStoreKitCloudSyncPurchased"
+    #else
     private static let cloudSyncPurchasedKey = "extensionCloudSyncPurchased"
+    #endif
     private static let cloudSyncEnabledKey = "extensionCloudSyncEnabled"
 
     /// The host mirrors its purchase and sync-toggle state here because app

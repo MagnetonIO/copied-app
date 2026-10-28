@@ -86,8 +86,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.3.4"
+        CURRENT_PROJECT_VERSION: "19"
         # Compile flags:
         #   MAS_BUILD       — paywall UI + PurchaseManager symbol present
         #   MAS_STOREFRONT  — "Unlock" button talks to real StoreKit (App Store IAP).
@@ -181,8 +181,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: CopiedMac/CopiedMac.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.3.4"
+        CURRENT_PROJECT_VERSION: "19"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD LICENSE_STRIPE DIRECT_DOWNLOAD
         APS_ENVIRONMENT: production
       configs:
@@ -277,8 +277,8 @@ targets:
         # variants. Override the base value locally per-target.
         CODE_SIGN_ENTITLEMENTS: CopiedIOS/CopiedIOS.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.3.4"
+        CURRENT_PROJECT_VERSION: "19"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Wire the host Assets.xcassets (generated 1024×1024 AppIcon — Xcode
         # synthesizes all iOS resolutions). Without this the home-screen and
@@ -315,6 +315,8 @@ targets:
       # Same StoreKit config as CopiedMac so Simulator can simulate the IAP
       # without requiring the App Store Connect product to exist.
       storeKitConfiguration: Copied.storekit
+      testTargets:
+        - CopiedIOSTests
 
   # ──────────────────────────────────────────
   # iOS Share Extension — "Save to Copied"
@@ -375,8 +377,8 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedShareExtension/CopiedShareExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.3.4"
+        CURRENT_PROJECT_VERSION: "19"
         TARGETED_DEVICE_FAMILY: "1,2"
         # Dedicated AppIcon for the share row — without this iOS falls
         # back to a generic placeholder in the share sheet.
@@ -453,8 +455,8 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         CODE_SIGN_ENTITLEMENTS: CopiedClipperExtension/CopiedClipperExtension.entitlements
         SWIFT_EMIT_LOC_STRINGS: true
-        MARKETING_VERSION: "1.3.3"
-        CURRENT_PROJECT_VERSION: "18"
+        MARKETING_VERSION: "1.3.4"
+        CURRENT_PROJECT_VERSION: "19"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: MAS_BUILD MAS_STOREFRONT
@@ -474,12 +476,33 @@ targets:
   # ──────────────────────────────────────────
   # Tests
   # ──────────────────────────────────────────
+  CopiedIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Tests/CopiedIOSTests
+      - CopiedKit/Tests/CopiedKitTests
+      - path: Copied.storekit
+        buildPhase: resources
+    dependencies:
+      - package: CopiedKit
+      - target: CopiedIOS
+      - sdk: StoreKitTest.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.magneton.copied.ios.tests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Copied.app/Copied"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
   CopiedKitTests:
     type: bundle.unit-test
     platform: macOS
     deploymentTarget: "15.0"
     sources:
       - Tests/CopiedKitTests
+      - CopiedKit/Tests/CopiedKitTests
     dependencies:
       - package: CopiedKit
       - target: CopiedMac

@@ -22,6 +22,7 @@ let package = Package(
                 // DEBUG flag into the package's compile.
                 .define("DEBUG", .when(configuration: .debug))
             ]
-        )
+        ),
+        .testTarget(name: "CopiedKitStateTests", dependencies: ["CopiedKit"], path: "Tests/CopiedKitTests")
     ]
 )

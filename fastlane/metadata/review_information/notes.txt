@@ -1,7 +1,15 @@
-Copied App is a menu bar clipboard manager. After install, its icon appears in the system menu bar — click it or press ⌃⇧C from any app to open the popover and view clipboard history. No sign-in required.
+Version 1.3.4 (19) is a bug-fix update to the approved Mac App Store version 1.3.3 (17).
+
+Changes:
+- Fixed concurrent access to iCloud sync metadata that caused a segmentation fault during sync.
+- Improved Up/Down keyboard scrolling past the visible clipping-list boundary while preserving native selection and mouse scrolling.
+
+Validation: sync-state regression tests passed with Thread Sanitizer; the final targeted Mac run passed keyboard navigation across 200 mixed-height clippings, copy commands, global shortcut, and persistence checks. No data reset is required.
+
+Copied App is a menu bar clipboard manager. After install, its icon appears in the system menu bar — click it or press ⌃⇧C from any app to open the popover and view clipboard history. No Copied account or sign-in is required. An iCloud account is needed to exercise cross-device sync.
 
 In-App Purchase:
-iCloud Sync is a $4.99 non-consumable in-app purchase (product ID: com.magneton.copied.icloud_sync). Without it, clipboard history is stored locally only. To test the purchase flow:
+iCloud Sync is an already-approved $4.99 non-consumable in-app purchase (product ID: com.magneton.copied.icloud_sync; IAP Apple ID: 6764169200). The existing product is unchanged. Without it, clipboard history is stored locally only. To test the purchase flow:
 
 1. Open Settings (⌘,) → Sync tab
 2. Click "Unlock iCloud Sync"

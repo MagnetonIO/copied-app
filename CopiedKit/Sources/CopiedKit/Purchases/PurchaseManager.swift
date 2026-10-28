@@ -18,7 +18,13 @@ public final class PurchaseManager {
     /// UserDefaults cache so `SharedData.container` can make a sync-or-not decision
     /// synchronously at app launch without awaiting StoreKit. Verified async on launch
     /// via `refreshEntitlements()`; if it disagrees, the user is prompted to restart.
+    #if os(iOS)
+    // Build 16 also set the legacy flag for external licenses. Never trust that
+    // cache on iOS; StoreKit restores legitimate purchases into this new key.
+    nonisolated public static let purchasedKey = "iCloudSyncStoreKitPurchased"
+    #else
     nonisolated public static let purchasedKey = "iCloudSyncPurchased"
+    #endif
 
     public private(set) var product: Product?
     public var isPremium: Bool {

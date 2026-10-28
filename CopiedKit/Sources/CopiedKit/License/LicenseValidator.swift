@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import CryptoKit
 
@@ -92,3 +93,4 @@ extension Data {
         self = data
     }
 }
+#endif

@@ -595,6 +595,26 @@ struct ClippingListBySelection: View {
     }
 }
 
+/// Reveal the selected model by its stable row ID after lazy row measurement,
+/// rather than relying only on the native table's estimated row positions.
+private struct MainWindowSelectionScrollAnchor: ViewModifier {
+    let items: [Clipping]
+    @Binding var selection: Set<Clipping>
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content
+                .onChange(of: Set(selection.map(\.persistentModelID))) { _, selected in
+                    guard selected.count == 1, let id = selected.first,
+                          items.contains(where: { $0.persistentModelID == id }) else { return }
+                    // A nil anchor performs the minimum scroll needed, without
+                    // recentering rows that are already inside the viewport.
+                    proxy.scrollTo(id)
+                }
+        }
+    }
+}
+
 // MARK: - All Clippings
 
 private struct AllClippingsList: View {
@@ -650,6 +670,7 @@ private struct AllClippingsList: View {
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .modifier(MainWindowSelectionScrollAnchor(items: filtered, selection: $selectedClippings))
         .onDeleteCommand {
             for c in selectedClippings { c.moveToTrash() }
             selectedClippings.removeAll()
@@ -713,6 +734,7 @@ private struct FavoritesClippingsList: View {
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .modifier(MainWindowSelectionScrollAnchor(items: filtered, selection: $selectedClippings))
         .onDeleteCommand {
             for c in selectedClippings { c.moveToTrash() }
             selectedClippings.removeAll()
@@ -784,6 +806,7 @@ private struct TrashClippingsList: View {
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .modifier(MainWindowSelectionScrollAnchor(items: filtered, selection: $selectedClippings))
         .onDeleteCommand {
             for c in selectedClippings { c.hardDelete(in: modelContext) }
             selectedClippings.removeAll()
@@ -871,6 +894,7 @@ private struct ListClippingsList: View {
                 }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .modifier(MainWindowSelectionScrollAnchor(items: filtered, selection: $selectedClippings))
         .onDeleteCommand {
             for c in selectedClippings { c.moveToTrash() }
             selectedClippings.removeAll()

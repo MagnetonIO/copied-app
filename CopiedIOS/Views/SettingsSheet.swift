@@ -8,25 +8,19 @@ import CopiedKit
 ///   Card 3: Siri Shortcuts · Rules · Text Formatters · Merge Scripts
 ///           (placeholders — Mac doesn't implement these either)
 ///   Card 4: Documentation (external link)
-///   Card 5: Rate Copied · Email Support · Licenses · Privacy Policy
+///   Card 5: Rate Copied · Email Support · Open-source Licenses · Privacy Policy
 ///   Footer: "Copied X.Y.Z (B)"
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// In-app review prompt (iOS 16+). Apple throttles this to ≤3 per year
     /// per Apple ID — spamming it is a no-op, not a bug.
     @Environment(\.requestReview) private var requestReview
-    @AppStorage("iCloudSyncPurchased") private var purchased = false
+    @AppStorage(PurchaseManager.purchasedKey) private var purchased = false
     // Default must match `SyncScreen` and `CopiedIOSApp`'s container
     // gate — otherwise this view reports "Disabled" right after unlock
     // while the sync screen reports "Active", because an unset key
     // resolves to each view's local default.
     @AppStorage("cloudSyncEnabled") private var cloudSyncToggle = true
-    /// Lifted up from `SyncScreen` — iOS 26 won't reliably present a
-    /// `.sheet` attached to a view that lives inside a `NavigationStack`
-    /// inside another sheet; moving the modifier to the NavigationStack
-    /// root makes the presentation deterministic.
-    @State private var presentsLicenseEntry = false
-    @State private var licenseBanner: String?
 
     private var syncStatusLabel: String {
         if purchased && cloudSyncToggle { return "Active" }
@@ -58,10 +52,7 @@ struct SettingsSheet: View {
 
                 Section {
                     NavigationLink {
-                        SyncScreen(
-                            presentsLicenseEntry: $presentsLicenseEntry,
-                            licenseBanner: $licenseBanner
-                        )
+                        SyncScreen()
                     } label: {
                         HStack {
                             Text("iCloud Sync")
@@ -90,7 +81,7 @@ struct SettingsSheet: View {
                     Link("Email Support",
                          destination: URL(string: "mailto:support@getcopied.app?subject=Copied%20iOS")!)
                         .foregroundStyle(.primary)
-                    NavigationLink("Licenses") { LicensesView() }
+                    NavigationLink("Open-source Licenses") { LicensesView() }
                     Link("Privacy Policy",
                          destination: URL(string: "https://getcopied.app/privacy")!)
                         .foregroundStyle(.primary)
@@ -116,11 +107,6 @@ struct SettingsSheet: View {
             }
             .tint(.copiedTeal)
             .preferredColorScheme(.dark)
-        }
-        .sheet(isPresented: $presentsLicenseEntry) {
-            LicenseEntrySheet(onSuccess: { email in
-                licenseBanner = "License verified for \(email). iCloud Sync is now unlocked."
-            })
         }
     }
 }
@@ -153,6 +139,6 @@ private struct LicensesView: View {
             .padding()
         }
         .preferredColorScheme(.dark)
-        .navigationTitle("Licenses")
+        .navigationTitle("Open-source Licenses")
     }
 }

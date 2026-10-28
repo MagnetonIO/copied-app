@@ -82,7 +82,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// a zone rename (e.g. "copied" → "Copied") and force a clean
     /// re-seed rather than carry stale change tokens into a zone that
     /// no longer exists.
-    private struct Persisted: Codable {
+    private struct Persisted: Codable, Sendable {
         var stateSerialization: CKSyncEngine.State.Serialization?
         /// Set after a successful one-time upload of pre-existing local
         /// SwiftData rows on first launch post-CKSyncEngine migration.
@@ -116,9 +116,8 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         var manualPullZoneToken: Data?
     }
 
-    private var persisted: Persisted
+    private let stateStore: SyncEngineStateStore<Persisted>
     private let stateFileURL: URL
-    private let stateQueue = DispatchQueue(label: "com.magneton.copied.syncengine.state")
 
     // MARK: - Init
 
@@ -136,12 +135,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         self.stateFileURL = dir.appendingPathComponent("state.json")
 
-        if let data = try? Data(contentsOf: self.stateFileURL),
-           let state = try? JSONDecoder().decode(Persisted.self, from: data) {
-            self.persisted = state
-        } else {
-            self.persisted = Persisted()
-        }
+        self.stateStore = SyncEngineStateStore(
+            fileURL: stateFileURL, initialState: Persisted()
+        )
     }
 
     /// Call once from AppDelegate after the SwiftData container exists
@@ -157,17 +153,19 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // upgrade state files), clear the serialization and re-seed.
         // Stale change tokens from a different zone are worthless and
         // can confuse the engine's reconciliation.
-        if persisted.lastZoneName != Self.zoneID.zoneName {
-            NSLog("[CopiedSyncEngine] zone changed: '\(persisted.lastZoneName ?? "nil")' → '\(Self.zoneID.zoneName)'. Clearing state + forcing re-seed.")
-            persisted.stateSerialization = nil
-            persisted.didSeedUpload = false
-            persisted.lastZoneName = Self.zoneID.zoneName
-            persist()
+        stateStore.update { state in
+            if state.lastZoneName != Self.zoneID.zoneName {
+                NSLog("[CopiedSyncEngine] zone changed: '\(state.lastZoneName ?? "nil")' → '\(Self.zoneID.zoneName)'. Clearing state + forcing re-seed.")
+                state.stateSerialization = nil
+                state.didSeedUpload = false
+                state.lastZoneName = Self.zoneID.zoneName
+            }
         }
+        let initialState = stateStore.read { $0 }
 
         var config = CKSyncEngine.Configuration(
             database: container.privateCloudDatabase,
-            stateSerialization: persisted.stateSerialization,
+            stateSerialization: initialState.stateSerialization,
             delegate: self
         )
         config.automaticallySync = true
@@ -177,7 +175,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // Enqueue zone creation on very first launch (state serialization
         // is nil → never synced before). CKSyncEngine dedupes zone saves,
         // so a second enqueue on subsequent launches is harmless.
-        if persisted.stateSerialization == nil {
+        if initialState.stateSerialization == nil {
             created.state.add(pendingDatabaseChanges: [
                 .saveZone(CKRecordZone(zoneID: Self.zoneID))
             ])
@@ -197,7 +195,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // successful save. Flipping it eagerly would orphan queued
         // changes if the app crashes / network fails before the first
         // send lands, causing `serverRecordChanged` floods on relaunch.
-        if !persisted.didSeedUpload {
+        if !initialState.didSeedUpload {
             seedLocalData(container: modelContainer)
         }
     }
@@ -346,8 +344,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             "source=\(source, privacy: .public)"
         )
         do {
+            let state = stateStore.read { $0 }
             Self.profileLogger.log(
-                "fetchContext source=\(source, privacy: .public) engineReady=\(self.engine != nil) syncInFlight=\(syncNowInFlight) pendingSaves=\(pendingSaveCount) pendingDeletes=\(pendingDeleteCount) hasStateSerialization=\(self.persisted.stateSerialization != nil) didSeedUpload=\(self.persisted.didSeedUpload) pendingListRefs=\(self.persisted.pendingListReferences.count)"
+                "fetchContext source=\(source, privacy: .public) engineReady=\(self.engine != nil) syncInFlight=\(syncNowInFlight) pendingSaves=\(pendingSaveCount) pendingDeletes=\(pendingDeleteCount) hasStateSerialization=\(state.stateSerialization != nil) didSeedUpload=\(state.didSeedUpload) pendingListRefs=\(state.pendingListReferences.count)"
             )
             Self.profileLogger.log("fetchChanges begin source=\(source, privacy: .public)")
             NSLog("[CopiedSyncEngine] fetchChanges source=\(source) begin")
@@ -752,7 +751,7 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     }
 
     private func decodedManualPullToken() -> CKServerChangeToken? {
-        let data = stateQueue.sync { persisted.manualPullZoneToken }
+        let data = stateStore.read { $0.manualPullZoneToken }
         guard let data else { return nil }
         return try? NSKeyedUnarchiver.unarchivedObject(
             ofClass: CKServerChangeToken.self,
@@ -764,20 +763,18 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         guard let data = try? NSKeyedArchiver.archivedData(
             withRootObject: token, requiringSecureCoding: true
         ) else { return }
-        stateQueue.sync {
-            persisted.manualPullZoneToken = data
+        stateStore.update {
+            $0.manualPullZoneToken = data
         }
-        persist()
     }
 
     /// Wipe the locally-persisted change token. Used after the server reset
     /// the zone (CKErrorChangeTokenExpired etc.); the next fetch passes nil
     /// and replays the entire zone from scratch.
     private func clearManualPullToken() {
-        stateQueue.sync {
-            persisted.manualPullZoneToken = nil
+        stateStore.update {
+            $0.manualPullZoneToken = nil
         }
-        persist()
     }
 
     /// Called by every Clipping / ClipList / Asset mutation site (Phase 3
@@ -852,11 +849,8 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
         // 3. Clear persisted engine state + every sibling file (outbound
         //    blob cache) so the next launch starts from zero.
-        //    stateQueue.sync guards the dict reset against concurrent
-        //    reads in baseRecord.
-        stateQueue.sync {
-            persisted = Persisted()
-        }
+        stateStore.update { $0 = Persisted() }
+        stateStore.flush()
         let parent = stateFileURL.deletingLastPathComponent()
         try? FileManager.default.removeItem(at: parent)
 
@@ -890,11 +884,11 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         case .stateUpdate(let e):
             // Persist engine state on every update so restarts resume
             // from the latest server-change token instead of full refetch.
-            persisted.stateSerialization = e.stateSerialization
+            stateStore.update { $0.stateSerialization = e.stateSerialization }
+            let state = stateStore.read { $0 }
             Self.profileLogger.log(
-                "event stateUpdate hasStateSerialization=\(self.persisted.stateSerialization != nil) didSeedUpload=\(self.persisted.didSeedUpload) pendingListRefs=\(self.persisted.pendingListReferences.count)"
+                "event stateUpdate hasStateSerialization=\(state.stateSerialization != nil) didSeedUpload=\(state.didSeedUpload) pendingListRefs=\(state.pendingListReferences.count)"
             )
-            persist()
 
         case .accountChange(let e):
             await handleAccountChange(e)
@@ -1096,12 +1090,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         // will fetch on its automatic schedule after sign-in.
         switch event.changeType {
         case .signIn:
-            persisted.didSeedUpload = false
-            persist()
+            stateStore.update { $0.didSeedUpload = false }
         case .switchAccounts, .signOut:
-            persisted.stateSerialization = nil
-            persisted.didSeedUpload = false
-            persist()
+            stateStore.update {
+                $0.stateSerialization = nil
+                $0.didSeedUpload = false
+            }
         @unknown default:
             break
         }
@@ -1258,12 +1252,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         }
         // Deletions: drop any cached system fields so future saves of the
         // same ID (e.g. restore flow) start fresh.
-        for del in event.deletions {
-            persisted.lastKnownRecordSystemFields.removeValue(
-                forKey: del.recordID.recordName
-            )
+        stateStore.update { state in
+            for del in event.deletions {
+                state.lastKnownRecordSystemFields.removeValue(
+                    forKey: del.recordID.recordName
+                )
+            }
         }
-        persist()
     }
 
     private func handleSentRecordZoneChanges(
@@ -1280,19 +1275,18 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             cleanupOutboundBlobs(recordName: savedRecord.recordID.recordName)
         }
         // Deletions also update the cache — drop the entry.
-        for deletedID in event.deletedRecordIDs {
-            persisted.lastKnownRecordSystemFields.removeValue(
-                forKey: deletedID.recordName
-            )
-        }
         // First successful save confirms CKSyncEngine actually delivered
         // something — safe to mark the seed migration done. Guarding on
         // `savedRecords.isEmpty == false` ensures we don't flip the
         // flag on a batch with only failures.
-        if !persisted.didSeedUpload && !event.savedRecords.isEmpty {
-            persisted.didSeedUpload = true
+        stateStore.update { state in
+            for deletedID in event.deletedRecordIDs {
+                state.lastKnownRecordSystemFields.removeValue(forKey: deletedID.recordName)
+            }
+            if !event.savedRecords.isEmpty {
+                state.didSeedUpload = true
+            }
         }
-        persist()
 
         // Per-record failure handling.
         for failure in event.failedRecordSaves {
@@ -1322,10 +1316,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             case .unknownItem:
                 // Record was deleted server-side; drop our save + cache.
                 engine?.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
-                persisted.lastKnownRecordSystemFields.removeValue(
-                    forKey: recordID.recordName
-                )
-                persist()
+                stateStore.update {
+                    $0.lastKnownRecordSystemFields.removeValue(forKey: recordID.recordName)
+                }
             default:
                 NSLog("[CopiedSyncEngine] unhandled save failure: \(failure.error)")
             }
@@ -1555,17 +1548,16 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
         if let listID = CKRecordMapper.listID(from: record) {
             if let list = fetchClipList(listID: listID, ctx: ctx) {
                 clipping.list = list
-                persisted.pendingListReferences.removeValue(forKey: recordName)
+                stateStore.update { $0.pendingListReferences.removeValue(forKey: recordName) }
             } else {
                 // ClipList hasn't arrived yet. Remember the desired
                 // relationship; upsertClipList will restitch below.
                 clipping.list = nil
-                persisted.pendingListReferences[recordName] = listID
-                persist()
+                stateStore.update { $0.pendingListReferences[recordName] = listID }
             }
         } else {
             clipping.list = nil
-            persisted.pendingListReferences.removeValue(forKey: recordName)
+            stateStore.update { $0.pendingListReferences.removeValue(forKey: recordName) }
         }
     }
 
@@ -1596,9 +1588,9 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
 
         // Orphan re-stitch: any Clippings that referenced this listID
         // while it was missing can now be linked.
-        let orphanClippingIDs = persisted.pendingListReferences
-            .filter { $0.value == recordName }
-            .map(\.key)
+        let orphanClippingIDs = stateStore.read {
+            $0.pendingListReferences.filter { $0.value == recordName }.map(\.key)
+        }
         for cid in orphanClippingIDs {
             let orphanDesc = FetchDescriptor<Clipping>(
                 predicate: #Predicate<Clipping> { $0.clippingID == cid }
@@ -1606,10 +1598,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
             if let orphan = try? ctx.fetch(orphanDesc).first {
                 orphan.list = list
             }
-            persisted.pendingListReferences.removeValue(forKey: cid)
         }
         if !orphanClippingIDs.isEmpty {
-            persist()
+            stateStore.update { state in
+                for cid in orphanClippingIDs {
+                    state.pendingListReferences.removeValue(forKey: cid)
+                }
+            }
         }
     }
 
@@ -1703,14 +1698,12 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     /// Called from `makeRecord` inside `nextRecordZoneChangeBatch`'s
     /// record-provider closure (nonisolated, on the CKSyncEngine
     /// queue), while `rememberSystemFields` writes to the same dict
-    /// from both the engine queue AND MainActor-isolated paths. The
-    /// read/write pair must be serialized — we use `stateQueue.sync`
-    /// since the queue is already a serial DispatchQueue independent
-    /// of main, no deadlock risk.
+    /// from both the engine queue AND MainActor-isolated paths. All reads,
+    /// mutations, and serialization share the state store's queue.
     fileprivate func baseRecord(for recordName: String, type: String) -> CKRecord {
         let recordID = CKRecord.ID(recordName: recordName, zoneID: Self.zoneID)
-        let cachedData = stateQueue.sync {
-            persisted.lastKnownRecordSystemFields[recordName]
+        let cachedData = stateStore.read {
+            $0.lastKnownRecordSystemFields[recordName]
         }
         if let data = cachedData, let rehydrated = Self.decodeRecord(from: data) {
             return rehydrated
@@ -1719,29 +1712,13 @@ public final class CopiedSyncEngine: CKSyncEngineDelegate, @unchecked Sendable {
     }
 
     /// Cache the system fields of a record we've either successfully
-    /// sent or fetched. Writes `persisted` to disk via the async queue.
-    /// The in-memory dict write is guarded by `stateQueue.sync` to
-    /// serialize against `baseRecord`'s read path.
+    /// sent or fetched. The store serializes mutation and disk encoding with
+    /// all readers, including metadata snapshots from delegate callbacks.
     fileprivate func rememberSystemFields(of record: CKRecord) {
         let data = Self.encodeSystemFields(record)
         let key = record.recordID.recordName
-        stateQueue.sync {
-            persisted.lastKnownRecordSystemFields[key] = data
-        }
-        persist()
-    }
-
-    // MARK: - Persistence
-
-    private func persist() {
-        let snapshot = persisted
-        stateQueue.async { [stateFileURL] in
-            do {
-                let data = try JSONEncoder().encode(snapshot)
-                try data.write(to: stateFileURL, options: .atomic)
-            } catch {
-                NSLog("[CopiedSyncEngine] persist failed: \(error.localizedDescription)")
-            }
+        stateStore.update {
+            $0.lastKnownRecordSystemFields[key] = data
         }
     }
 }

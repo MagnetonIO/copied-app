@@ -27,6 +27,11 @@ icon, without text overlays or important detail in the lower-left icon area:
 
 ## Review warning
 
+The iOS license-entry feature was removed on October 27, 2026 for guideline
+3.1.1 compliance. The existing iOS and combined review images predate that fix;
+recapture them from the updated `SyncScreen()` before reusing them. The capture
+host has been updated, but the old images are retained as historical artifacts.
+
 The production iOS paywall currently promises restoration of a family member's
 purchase. The previously inspected App Store Connect IAP record had Family
 Sharing disabled, and `Copied.storekit` also has `familyShareable: false`.

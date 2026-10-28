@@ -5,11 +5,20 @@ import OSLog
 
 /// Shared container — single instance used by both popover and window.
 enum SharedData {
+    static var isUnitTestHost: Bool {
+        #if DEBUG
+        NSClassFromString("XCTestCase") != nil
+        #else
+        false
+        #endif
+    }
+
     @MainActor
     static let initialCloudSyncEnabled: Bool = computeCloudSyncEnabled()
 
     @MainActor
     private static func computeCloudSyncEnabled() -> Bool {
+        guard !isUnitTestHost else { return false }
         let userToggle = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
         #if MAS_BUILD
         let purchased = UserDefaults.standard.bool(forKey: "iCloudSyncPurchased")
@@ -30,6 +39,13 @@ enum SharedData {
 
     @MainActor
     static let container: ModelContainer = {
+        if isUnitTestHost {
+            do {
+                return try CopiedSchema.makeContainer(inMemory: true, cloudSync: false)
+            } catch {
+                fatalError("Failed to create test ModelContainer: \(error)")
+            }
+        }
         let cloudSyncEnabled = initialCloudSyncEnabled
         do {
             return try CopiedSchema.makeContainer(cloudSync: cloudSyncEnabled)
@@ -210,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let syncMonitor = SyncMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !SharedData.isUnitTestHost else { return }
         // Force-init the SyncTicker singleton before any view/model work so
         // its `.import` / remote-change observers are wired from t=0. Without
         // this, imports that fire during launch (or before the first popover

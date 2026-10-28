@@ -70,7 +70,7 @@ private enum IntentStore {
     nonisolated(unsafe) static let container: ModelContainer? = {
         let userToggle = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
         #if MAS_BUILD
-        let purchased = UserDefaults.standard.bool(forKey: "iCloudSyncPurchased")
+        let purchased = UserDefaults.standard.bool(forKey: PurchaseManager.purchasedKey)
         let cloudSync = userToggle && purchased
         #else
         let cloudSync = userToggle

@@ -7,22 +7,16 @@ import CopiedKit
 /// 2. Purchased, toggle off → "Enable iCloud Sync" toggle.
 /// 3. Purchased + enabled → status from `SyncMonitor`.
 ///
-/// Uses the shared `PurchaseManager` in `CopiedKit` — same `iCloudSyncPurchased`
-/// UserDefaults key as Mac, so a user with Family Sharing or Restore Purchases
-/// on both platforms sees one consistent unlocked state.
+/// Uses the shared StoreKit product through `PurchaseManager` in `CopiedKit`.
+/// Only verified App Store purchases or restores can unlock iOS sync.
 struct SyncScreen: View {
-    @AppStorage("iCloudSyncPurchased") private var purchased = false
+    @AppStorage(PurchaseManager.purchasedKey) private var purchased = false
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
 
     // Shared singleton; `@State` keeps the reference stable across view rebuilds
     // so `.task { await pm.loadProduct() }` runs exactly once per mount.
     @State private var pm = PurchaseManager.shared
     @State private var lastActionMessage: String?
-    /// Lifted to `SettingsSheet` so the sheet attaches to the root
-    /// NavigationStack — iOS 26 doesn't reliably present sheets attached
-    /// to views inside a NavigationStack that is itself inside a sheet.
-    @Binding var presentsLicenseEntry: Bool
-    @Binding var licenseBanner: String?
 
     var body: some View {
         Form {
@@ -52,13 +46,6 @@ struct SyncScreen: View {
                 }
                 .disabled(pm.purchaseInFlight)
                 .foregroundStyle(Color.copiedTeal)
-
-                Button("Enter License Key") {
-                    presentsLicenseEntry = true
-                }
-                .foregroundStyle(Color.copiedTeal)
-            } footer: {
-                Text("Bought a license for the Mac Direct version (outside the App Store)? Enter it here to unlock iCloud Sync on iOS too.")
             }
 
             if let msg = lastActionMessage {
@@ -86,12 +73,6 @@ struct SyncScreen: View {
                 purchased: purchased,
                 enabled: newValue
             )
-        }
-        .onChange(of: licenseBanner) { _, new in
-            // `LicenseEntrySheet` dismisses itself on success; we observe
-            // the banner string set by `SettingsSheet` so the sync screen
-            // reflects the unlock immediately without a second round-trip.
-            if let new { lastActionMessage = new; licenseBanner = nil }
         }
     }
 

@@ -1,3 +1,6 @@
+VERSION 1.3.4 (19)
+This replacement build aligns the iOS and Mac release versions and fixes a crash during background iCloud sync by serializing sync metadata access. Existing clipping data is preserved; no library reset is required. The iOS app and both extensions use version 1.3.4 (19).
+
 Copied is an iCloud-synced clipboard manager for iPhone and iPad. No sign-in required — sync uses the device's iCloud account automatically.
 
 QUICK START
@@ -6,8 +9,22 @@ QUICK START
 3. Switch back to Copied — the new clipping appears at the top of the list.
 4. Tap any clipping to copy it back to the system pasteboard, ready to paste anywhere.
 
-iCloud SYNC
-The app uses CloudKit's private database (the user's own iCloud account, not our servers). To verify sync end-to-end, install Copied on a second device signed into the same Apple ID — clippings appear within a few seconds. Sync is included; no in-app purchase required for the iOS app.
+iCloud SYNC IN-APP PURCHASE
+Local clipboard history is free. iCloud Sync is a one-time, non-consumable in-app purchase: com.magneton.copied.icloud_sync ($4.99 USD; the app displays the localized App Store price).
+
+To locate the purchase on iPhone or iPad:
+1. Launch Copied and open the Copied clippings list.
+2. On iPhone, tap the three-slider icon beside the clipping count at the bottom-right, just above Search. This opens Settings; the circular three-line button at the top-right is the content filter, not Settings. On iPad, tap Settings in the left sidebar below Trash; use the sidebar button at the top-left if the sidebar is hidden.
+3. Tap the iCloud Sync row (it shows Disabled before purchase).
+4. The Unlock iCloud Sync screen displays an Unlock button and the localized price. Tap Unlock to present Apple's in-app purchase confirmation sheet.
+5. Restore Purchases is available on the same screen. If this Apple Account already owns the product, the purchase is replaced by the iCloud Sync toggle and status.
+
+The purchase uses StoreKit 2 and is not gated on the device's iCloud sign-in, storefront, clipboard contents, or device type. No Copied account is required. The same product ID is used by the iOS and Mac App Store apps.
+
+GUIDELINE 3.1.1 FOLLOW-UP
+License-key entry and external-license redemption have been removed from the iOS app. The iOS app and both extensions no longer contain the external license store or validator. iCloud Sync unlocks only through a verified StoreKit purchase or Restore Purchases. Cached external-license unlocks from build 16 are not accepted; legitimate App Store purchases are revalidated through StoreKit. The Settings row named Open-source Licenses contains attribution text only, with no activation or redemption functionality.
+
+After a successful purchase, force-quit and reopen Copied as instructed by the Restart required banner to activate syncing. Sync uses CloudKit's private database and requires the device's iCloud account. To verify cross-device sync, use a second device signed into the same iCloud account with the purchase restored and iCloud Sync enabled.
 
 PRIVACY
 • All clipboard data stays in the user's iCloud private container; we have zero access.

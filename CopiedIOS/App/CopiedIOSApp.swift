@@ -3,15 +3,14 @@ import SwiftData
 import UIKit
 import CopiedKit
 
-/// Shared container — same gating logic as the Mac MAS build. The
-/// `iCloudSyncPurchased` and `cloudSyncEnabled` UserDefaults keys round-trip
-/// via `NSUbiquitousKeyValueStore`, so a user who's unlocked on Mac sees it
-/// on iOS (and vice versa) without a second purchase.
+/// Shared container gated by the local StoreKit entitlement cache and sync
+/// preference. The same App Store product can be restored on iOS and Mac;
+/// external licenses and their legacy cached flags do not unlock iOS sync.
 enum SharedIOSData {
     /// Snapshot of the cloudSync gate at container-construction time.
     /// `requiresRelaunchForSync` compares this to live state to decide
-    /// whether the user needs to restart the app for a purchase/restore/
-    /// license unlock to actually start using CloudKit.
+    /// whether the user needs to restart after a purchase or restore to
+    /// actually start using CloudKit.
     @MainActor
     static let initialCloudSyncEnabled: Bool = computeCloudSyncEnabled()
 
@@ -19,7 +18,7 @@ enum SharedIOSData {
     private static func computeCloudSyncEnabled() -> Bool {
         let userToggle = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
         #if MAS_BUILD
-        let purchased = UserDefaults.standard.bool(forKey: "iCloudSyncPurchased")
+        let purchased = UserDefaults.standard.bool(forKey: PurchaseManager.purchasedKey)
         return userToggle && purchased
         #else
         return userToggle
@@ -122,7 +121,7 @@ struct CopiedIOSApp: App {
         // Start the Transaction.updates listener immediately so Ask-to-Buy
         // approvals, refunds, and revocations that arrive after launch are
         // caught. PurchaseManager also re-verifies current entitlements async
-        // and flips `iCloudSyncPurchased` if the cached value disagrees with
+        // and updates its StoreKit-only cache if the cached value disagrees with
         // StoreKit. The user is prompted to restart on next settings visit.
         _ = PurchaseManager.shared
         #endif

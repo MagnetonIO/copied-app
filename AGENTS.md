@@ -23,6 +23,12 @@ GitHub release publishing uses the authenticated `gh` CLI and the release repo
 `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `project.yml`.
 `CFBundleVersion` is wired to `$(CURRENT_PROJECT_VERSION)`.
 
+Keep the marketing version and build number aligned across `CopiedMac`,
+`CopiedMacDirect`, `CopiedIOS`, `CopiedShareExtension`, and
+`CopiedClipperExtension`. The aligned source version is currently `1.3.4 (19)`.
+Do not reset the shared build counter to 1 for a new marketing version: Mac
+App Store build numbers must keep increasing across marketing versions.
+
 To bump or set the build number, use:
 
 ```sh
@@ -322,6 +328,194 @@ retrieve its ID from `/v2/inAppPurchases/6764169200/versions`, not the product I
 Verify both `appStoreVersion` and `inAppPurchaseVersion` relationships. On
 2026-10-06, draft `0de8b82a-a8b3-461e-a321-92e00d95eafc` was prepared with
 both items, without submitting it. Recheck live state before further actions.
+
+### iOS Guideline 3.1.1 Follow-up (2026-10-27)
+
+iOS 1.3.3 build 16 was rejected for accepting external license keys. The iOS
+app must only use StoreKit purchase/restore for the shared iCloud Sync product.
+Do not reintroduce license-entry UI, license URL redemption, or `LicenseStore`
+on iOS. The shared license store/validator compile only on macOS; the website
+Mac license flow is unchanged. The Open-source Licenses page is attribution,
+not a paid unlock.
+
+On iOS, use `PurchaseManager.purchasedKey` everywhere rather than the legacy
+`iCloudSyncPurchased` literal. Its iOS-specific StoreKit cache deliberately
+ignores the old flag, which could have been set by a license key. StoreKit
+reconciliation/restore repopulates the new cache for actual App Store owners;
+the existing restart banner applies when the container's sync gate changes.
+`SharedStore` also uses a new iOS App Group purchase key, so an extension
+launched before the updated host cannot inherit a build-16 license unlock.
+
+Run `zsh scripts/test-ios-purchases.sh SIMULATOR_UDID` on an isolated simulator.
+The driver adds a test-only `get-task-allow` entitlement: without it, StoreKitTest
+rejects ad-hoc simulator builds as "not installed for development" and falls
+back to the real sandbox. Never apply that override to an archive/export.
+`CopiedIOSTests` covers the old cache bypass, purchase, restore, absent
+entitlement, and refund using the local StoreKit configuration. Then check the
+actual archive/export:
+
+```sh
+zsh scripts/verify-ios-build.sh build/ios/Copied.ipa
+```
+
+The iOS archive and TestFlight lanes run this check automatically to reject
+license-unlock code in the app or its extensions. Do not resubmit build 16:
+upload a new build, select it on the production version, update the review
+notes, and submit only when requested. These local source changes alone do
+not modify the existing App Review submission.
+
+The validated October 27 build is 1.3.3 (18), exported to
+`build/ios-review-fixed/Copied.ipa`, with five StoreKit tests passing on each
+of the dedicated iPhone 17 Pro Max (iOS 26.5) and iPad Air 11-inch (iPadOS 27)
+simulators. It was uploaded and processed as `VALID` (build ID
+`9c503f07-4d31-442b-bbb6-49d88ac1e2b0`), selected for the iOS production version,
+and resubmitted on October 27 at 3:41 PM CDT. Submission
+`265b57df-372a-4851-ad7e-d7c77e287deb` is `WAITING_FOR_REVIEW`; a guideline 3.1.1
+remediation reply and updated review notes were posted. The exact reply is
+saved in `build/ios-review-fixed/app-review-reply.txt`.
+
+Internal TestFlight state is `READY_FOR_BETA_TESTING`; Magneton Labs has
+automatic access to all builds. Build 18 was assigned to the existing External
+Users group and submitted to Beta App Review on October 27; the beta review
+state subsequently became `APPROVED`, with external state `IN_BETA_TESTING`
+and automatic tester notifications enabled.
+Beta review notes explain the StoreKit-only unlock and purchase navigation.
+Internal and external testing are available; beta approval is separate from
+the production review. The Mac release and approved shared IAP were not changed.
+Verify tester membership as well as build/group assignment before reporting
+TestFlight access. On October 27, Magneton Labs had zero testers despite its
+automatic build access; the existing Matthew Long tester was restored to that
+internal group. A valid distributed build does not restore a missing tester
+membership. Do not remove/recreate testers as a routine release step.
+The standard `build/ios/` output was preserved and still
+contains the old binary; do not upload that artifact or re-upload build 18.
+
+The iOS upload lane accepts `ipa:build/ios-review-fixed/Copied.ipa` (paths are
+resolved from the repository root) to publish a verified artifact outside the
+standard output location without rebuilding or overwriting preserved archives.
+Recheck App Store Connect build numbers before every new upload.
+
+### Build 18 Sync Crash (2026-10-27)
+
+Incident `2950C88D-C0B7-4CD8-8DC4-4F1A29C64567` on iOS 27.2 was an
+`EXC_BAD_ACCESS` in `rememberSystemFields(of:)`, on the sync metadata queue.
+The build-18 dSYM UUID `3D9ED87B-8CAF-39F7-8BCD-5D97AF6CF23D` matches the
+report. Dictionary writes used a queue, but snapshot copies, delegate cache
+deletions, and other persisted-state access bypassed it.
+
+The source fix confines all metadata access and encoding to
+`SyncEngineStateStore`. Its JSON shape is unchanged; no library reset or
+CloudKit wipe is required. Do not access metadata outside its `read`/`update`
+closures, or call back into the store from those closures. The state uses
+value semantics and is Sendable. Disk writes remain atomic and serialized.
+
+Run `swift test --package-path CopiedKit` and
+`swift test --package-path CopiedKit --sanitize=thread`. The four regression
+tests also run in both Xcode test bundles. On October 27, those tests passed
+under Thread Sanitizer, and all nine iOS tests passed on the dedicated iPhone
+and iPad simulators. The Mac suite passed 68 tests before the additional
+keyboard-navigation coverage. A Mac test host requires Apple Development
+signing, not ad-hoc signing, because its entitlements include CloudKit.
+
+The crash fix is included in the build-19 archives documented below; the
+existing build-18 IPA still contains the old code. Never re-upload the old IPA
+as a crash fix. The Mac Debug test
+host uses an in-memory container and skips startup services when XCTest is
+loaded, so focused UI tests do not start live sync or clipboard monitoring.
+Tests that write to the general pasteboard can still be captured by an
+already-running installed copy of Copied; use an isolated test environment.
+
+### Main Window Keyboard Scrolling (2026-10-27)
+
+Up/down navigation was reported to jump when reaching the visible-list
+boundary; mouse scrolling was unaffected. The main window's All Clippings,
+Favorites, Trash, and custom-list views now reveal single selections through
+`MainWindowSelectionScrollAnchor`, using the persistent model ID and
+`ScrollViewProxy.scrollTo` without an anchor (minimum necessary movement).
+Native keyboard selection and modified keys remain in control of the List;
+do not intercept arrows and manually replace the selection.
+
+`MainWindowKeyboardNavigationTests` exercises the full split window with 200
+mixed-height, image-containing clippings in a temporary on-disk store. It
+checks adjacent selection, full row visibility, and bounded scroll movement
+across 150 rows down and back up. The final targeted Mac run passed all nine
+tests, including keyboard scrolling, native/control-C copy, the global hotkey,
+and sync-state persistence (`build/mac-sync-keyboard-final.xcresult`). These
+changes are included in the Mac 1.3.4 (19) upload documented below. No local
+installation was performed as part of that release.
+
+### Aligned 1.3.4 (19) Release (2026-10-27)
+
+The Mac 1.3.3 (19) upload was rejected because the approved 1.3.3 release
+train is closed. Its rejected artifacts are preserved under
+`build/preserved/20261027-pre19/mac-1.3.3-build19-rejected/`.
+
+Mac 1.3.4 (19), build ID `7d18394f-3ab8-448f-be35-27059622c899`, is `VALID`
+and available for internal TestFlight testing. It is assigned to External
+Users and waiting for Beta App Review. Its production version ID is
+`6f49bc04-173a-4349-a9ad-7d5f869a6079`; submission
+`7baa073b-5589-4f27-8cb2-cc7a87de53f0` was submitted October 27 at 6:04 PM CDT
+and is `WAITING_FOR_REVIEW`, with automatic release after approval. Do not
+cancel or recreate that Mac submission while aligning iOS.
+
+The Mac PKG is `build/mas/Copied.pkg`, SHA-256
+`fac6cb1a8ab4eb4357f26160b6cd2fa84494ce3ec40d4a807fbd15c11813d1dc`.
+Mac 1.3.3 remains live in the US App Store, independently confirmed with
+Apple's public lookup API on October 27.
+
+The first crash-fixed iOS upload was 1.3.3 (19), uploaded at 5:53 PM CDT.
+It was still processing when the user requested matching marketing versions;
+its local artifacts are preserved in
+`build/preserved/ios-1.3.3-build19-pre-alignment/`. Do not select that earlier
+version when preparing the aligned release.
+
+The replacement iOS archive/export is 1.3.4 (19), including both extensions.
+`build/ios/Copied.ipa` passed signing and license-code checks and was uploaded
+successfully at 6:16 PM CDT. Its SHA-256 is
+`185f8b7cf10cf94ef68395823e0cd811138fca946c2417a9a6627e1e95eb0e67`.
+The four sync-state regression tests passed again after alignment. Apple
+processed it as `VALID`, build ID `69d974c5-fe48-4f64-b8cb-1f010aa233e7`.
+It is available for internal TestFlight testing and assigned to External Users,
+with automatic notification enabled and external state
+`WAITING_FOR_BETA_REVIEW`. Never re-upload this version/build pair.
+
+At the user's request, only the old iOS submission
+`265b57df-372a-4851-ad7e-d7c77e287deb` was withdrawn. The existing iOS version
+record `e37d5871-d005-425e-ae7a-6b5011a5dced` was updated to 1.3.4 and the
+validated build 19 selected. All four iPhone and four iPad screenshots remain
+`COMPLETE`; purchase metadata and review contacts were preserved. Review notes
+identify the sync-crash fix and retain StoreKit-only purchase instructions.
+
+The replacement iOS submission `1dae9589-0bc6-4edb-a082-ab5d9de66d92` was
+submitted October 27 at 6:21:48 PM CDT and is `WAITING_FOR_REVIEW`, with automatic
+release after approval. The actual web draft was checked before submission.
+Both iOS and Mac production versions now select **1.3.4 (19)** and are waiting
+for review; the Mac submission was unchanged. API verification is saved in
+`build/aligned-review/submitted-1.3.4-build19.json`, and the matching screenshot
+is `build/aligned-review/both-platforms-1.3.4-submitted.png`.
+
+Apple completed processing of the earlier iOS 1.3.3 (19) upload after the
+1.3.4 upload, so the UI displayed a misleading "Newer Build Available" warning.
+The API confirmed that the later timestamp belonged to the old 1.3.3 train,
+not a newer 1.3.4 binary. The selected production build is the verified 1.3.4
+build above; do not replace it with 1.3.3 (19).
+
+No website PKG, GitHub release, appcast, or Homebrew update was published in
+this alignment step. Changing `CopiedMacDirect`'s source version does not ship
+that channel. The existing approved shared IAP remains unchanged.
+
+### Mac App Store Search Visibility (2026-10-27)
+
+Apple Developer Support case `103010858251` was submitted under Distribution
+-> App Store Search and Discoverability. The released Mac 1.3.3 listing opens
+with Get and Works on this Mac, but exact-name native search did not surface
+it in the results checked. Public distribution, 175 Available regions, and
+unrestricted search filters were verified. Apple's US Search API returned the
+app, which does not establish its native search ranking. The cause remains
+unconfirmed; do not describe the issue as intentional suppression or resolved.
+The form had no attachment field. The exact request, confirmation screenshot,
+and original search screenshot are preserved in `build/apple-search-support/`
+for follow-up. Filing the case did not change either pending 1.3.4 review.
 
 ## Combined Release Lanes
 
