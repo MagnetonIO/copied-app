@@ -1,0 +1,27 @@
+Subject: Review status follow-up - Copied App iOS 1.3.4 (19), Apple ID 6764115611
+
+Hello App Review Team,
+
+Could you please help us continue the review of Copied App for iPhone and iPad?
+
+Apple ID: 6764115611
+Version/build: iOS 1.3.4 (19)
+Submission ID: 1dae9589-0bc6-4edb-a082-ab5d9de66d92
+Submitted: October 27, 2026
+Current status checked November 1: Waiting for Review
+
+This submission addresses the earlier Guideline 3.1.1 feedback. External license-key entry and redemption have been removed from the iOS app and both extensions. Paid iCloud Sync access is available only through verified StoreKit purchases or Restore Purchases. The shared non-consumable product, com.magneton.copied.icloud_sync, is already approved, and the macOS app is approved for distribution.
+
+To locate the purchase:
+1. Launch Copied. On iPhone, open Settings using the three-slider icon beside the clipping count above Search. On iPad, choose Settings in the left sidebar.
+2. Tap iCloud Sync, then Unlock to display Apple's purchase sheet. Restore Purchases is available on the same screen.
+3. If the review account already owns the product, the app displays the sync toggle instead of the purchase button.
+
+No Copied account is required, and the purchase screen is not restricted by device type, storefront, or iCloud sign-in. The submitted build also fixes a background sync crash and preserves existing customer data.
+
+Please let us know if any additional information is needed to complete the review. We would appreciate an update on the pending submission and are available to assist with testing.
+
+Thank you,
+Matthew Long
+Magneton Labs, LLC
+support@getcopied.app

@@ -38,7 +38,12 @@ Pods/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+!.env.sample
 .next/
+.vercel/
+node_modules/
 
 # fastlane
 fastlane/api_key.json
@@ -55,3 +60,7 @@ vendor/bundle/
 .claude/
 .windsurf/
 skills-lock.json
+.playwright-mcp/
+playwright-report/
+test-results/
+coverage/

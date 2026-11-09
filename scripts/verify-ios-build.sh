@@ -21,6 +21,14 @@ for bundle in "${bundles[@]}"; do
     executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$bundle/Info.plist")
     binary="$bundle/$executable"
     [[ -f "$binary" ]] || { print -u2 "Missing executable: $binary"; exit 1; }
+    extension_point=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$bundle/Info.plist" 2>/dev/null || true)
+    if [[ "$extension_point" == com.apple.ui-services ]]; then
+        icons=("$bundle"/AppIcon*.png(N))
+        (( ${#icons} > 0 )) || { print -u2 "Missing action extension icons"; exit 1; }
+        for icon in "${icons[@]}"; do
+            swift "$repo/scripts/verify-action-icon.swift" "$icon"
+        done
+    fi
 done
 for binary in "$app"/**/*(.ND); do
     file -b "$binary" | rg -q '^Mach-O' || continue

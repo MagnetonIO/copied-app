@@ -25,7 +25,7 @@ GitHub release publishing uses the authenticated `gh` CLI and the release repo
 
 Keep the marketing version and build number aligned across `CopiedMac`,
 `CopiedMacDirect`, `CopiedIOS`, `CopiedShareExtension`, and
-`CopiedClipperExtension`. The aligned source version is currently `1.3.4 (19)`.
+`CopiedClipperExtension`. The aligned source version is currently `1.3.4 (20)`.
 Do not reset the shared build counter to 1 for a new marketing version: Mac
 App Store build numbers must keep increasing across marketing versions.
 
@@ -516,6 +516,41 @@ unconfirmed; do not describe the issue as intentional suppression or resolved.
 The form had no attachment field. The exact request, confirmation screenshot,
 and original search screenshot are preserved in `build/apple-search-support/`
 for follow-up. Filing the case did not change either pending 1.3.4 review.
+
+### iOS Action Icon and TestFlight Build 20 (2026-11-03)
+
+The Copied Clipper action extension uses a transparent monochrome AppIcon glyph,
+not the full-color host app icon. iOS supplies its own action background. Regenerate
+it with `swift scripts/render-action-icon.swift`. The build validator now runs
+`scripts/verify-action-icon.swift` against every packaged action-extension PNG,
+checking transparent margins, monochrome pixels, and nonblank glyph coverage.
+Do not apply this template to the host or share-row app icon.
+
+iOS 1.3.4 (20), build ID `d71bffc6-3d43-488c-af24-37df2f88917e`, is VALID,
+beta APPROVED, and IN_BETA_TESTING for External Users with automatic notifications.
+Its IPA is `build/ios/Copied.ipa`, SHA-256
+`6bc514cf4ae8403a18c5ee69dd5233363b538d8987996aa3a803fa38dd0d62b7`.
+The uploader printed UPLOAD SUCCEEDED but Fastlane exited on an incidental
+CDUploaderStateInfoResumeFilePath error. Apple build-upload COMPLETE and build
+VALID were independently verified; do not re-upload this version/build pair.
+Build-19 iOS artifacts are preserved in `build/preserved/20261103-before-build20/`.
+Only iOS was uploaded; no new Mac build or website PKG was published.
+
+The production iOS submission remains 1.3.4 (19), WAITING_FOR_REVIEW, ID
+`1dae9589-0bc6-4edb-a082-ab5d9de66d92`. It was not withdrawn or replaced.
+After external beta availability was verified, Apple Developer Support case
+`103017978572` was sent with platform iOS only. The exact letter and receipt
+are in `design/apple-ios-review-followup-2026-11-03*`.
+
+David Cheng (`tdcheng0620@gmail.com`) was added to External Users and an explicit
+Apple beta invitation was accepted. Membership is confirmed; email delivery and
+installation are not. The verified receipt is in `build/admin-setup/` and was
+imported into the production admin.
+
+Redemption campaigns are staged but disabled. Apple offer creation returned HTTP
+500; no codes were generated/imported or sent. See
+`design/ios-web-purchase-redemption-program.md` for activation gates and the
+distinction between initial migration and future website-purchase fulfillment.
 
 ## Combined Release Lanes
 

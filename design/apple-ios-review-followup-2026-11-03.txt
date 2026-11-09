@@ -1,0 +1,28 @@
+Subject: iOS ONLY - Copied App 1.3.4 still Waiting for Review - Apple ID 6764115611
+
+Hello App Review Team,
+
+Please investigate the iOS App Store submission for Copied App, for iPhone and iPad.
+
+Your November 2 response to case 103015815273 says the app is Ready for Distribution. However, the iOS production submission is still Waiting for Review in App Store Connect, as verified again on November 3, 2026. The iOS release has not been approved.
+
+App: Copied App
+Apple ID: 6764115611
+Bundle ID: com.magneton.copied
+Platform: iOS (iPhone and iPad)
+Production version awaiting review: 1.3.4, build 19
+Submitted: October 27, 2026
+iOS review submission ID: 1dae9589-0bc6-4edb-a082-ab5d9de66d92
+App Store Connect state: WAITING_FOR_REVIEW
+
+We have also released iOS 1.3.4, build 20 to TestFlight on November 3. Its beta review is approved and it is available to our external testers. TestFlight approval is separate from the pending iOS production review. We have not withdrawn or replaced that production submission.
+
+The pending iOS build already removes external license-key unlocking. iCloud Sync on iOS uses only Apple In-App Purchase and Restore Purchases. The iCloud Sync product is com.magneton.copied.icloud_sync.
+
+Could you please check this specific iOS submission, confirm its actual status, and let us know whether anything is blocking review or requires action from us? Please continue the existing iOS production review if no further action is needed.
+
+This request concerns the iPhone and iPad App Store release only.
+
+Thank you,
+Matthew Long
+Magneton Labs, LLC
